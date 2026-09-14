@@ -1,0 +1,36 @@
+[project]
+name = "tengyu-title-studio"
+version = "0.1.0"
+description = "腾域 ai 写标题 — Windows 跨境电商标题批处理"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.116,<1", "uvicorn>=0.35,<1", "pydantic>=2.11,<3",
+  "httpx>=0.28,<1", "pillow>=11,<13", "openpyxl>=3.1.5,<4",
+  "regex>=2025.7", "keyring>=25,<26", "platformdirs>=4,<5",
+  "filelock>=3.18,<4", "pywebview>=6,<7",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "respx>=0.22,<1", "ruff>=0.12,<1", "pyinstaller>=6,<7"]
+
+[project.scripts]
+tengyu-title = "tengyu.desktop:main"
+tengyu-title-web = "tengyu.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/tengyu"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
