@@ -16,6 +16,8 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from .language import check_language
+
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
@@ -138,8 +140,9 @@ def thumbnail(item: dict) -> bytes:
         image.close()
 
 
-def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: int | None) -> dict:
-    # Original body is stored separately. No language/semantic claim is inferred here.
+def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: int | None,
+                   language: str | None = None) -> dict:
+    # The original body stays separate. Language identification is not fact checking.
     if finish != "stop":
         return {"status": "failed", "title": None, "char_count": None,
                 "error": "模型响应未完整结束，原始内容已保存。"}
@@ -159,8 +162,12 @@ def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: i
         issues.append(f"{count} 字符，超过要求的 {maximum}")
     if "|" in title:
         issues.append("含标题规则禁用的竖线符号")
+    language_check = check_language(title, language) if language is not None else None
+    if language_check and language_check.status != "passed":
+        issues.append(language_check.message)
     return {"title": title, "char_count": count, "status": "review" if issues else "completed",
-            "error": "；".join(issues) or None}
+            "error": "；".join(issues) or None,
+            "language_check": language_check.model_dump() if language_check else None}
 
 
 def export_excel(batch: dict, items: list[dict]) -> str:

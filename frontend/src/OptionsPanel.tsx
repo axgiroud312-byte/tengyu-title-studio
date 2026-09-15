@@ -29,6 +29,6 @@ export default function OptionsPanel({ value, onChange, models, locked, refreshi
     <div className="field"><label>字符范围 <span className="optional">选填</span></label><div className="range-inputs"><TextInput aria-label="最少字符" type="number" min={1} max={32767} placeholder="最少" value={value.min_chars ?? ''} onChange={e => change('min_chars', e.target.value ? Number(e.target.value) : null)} disabled={locked}/><span>—</span><TextInput aria-label="最多字符" type="number" min={1} max={32767} placeholder="最多" value={value.max_chars ?? ''} onChange={e => change('max_chars', e.target.value ? Number(e.target.value) : null)} disabled={locked}/></div><p className="field-help">按可见字符统计，包含空格与标点。</p></div>
     <div className="field"><label htmlFor={`${fieldId}-requirements`}>补充要求 <span className="optional">选填</span></label><textarea id={`${fieldId}-requirements`} className="input requirements" placeholder="例如：面向美国市场，突出商品图案，避免促销词。也可填写已确认的商品资料。" value={value.requirements} onChange={e => change('requirements', e.target.value)} disabled={locked}/></div>
     <Btn className="skill-link" onClick={onSkill}><BookOpen size={15}/><span>查看内置标题规则</span><span className="skill-tag">SKILL</span></Btn>
-    <p className="panel-footnote">每个商品生成一次。长度不符会保留结果并标记，不自动重写。</p>
+    <p className="panel-footnote">生成后检查语言与字符数。未通过或语言待确认时标记“有风险”，保留标题，由你选择重新生成。</p>
   </div>;
 }

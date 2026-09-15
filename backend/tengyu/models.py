@@ -13,6 +13,14 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class LanguageCheck(StrictModel):
+    status: Literal["passed", "mismatch", "mixed", "uncertain", "unsupported", "unavailable"]
+    requested: str
+    detected: str | None = None
+    confidence: float | None = None
+    message: str
+
+
 class TitleOptions(StrictModel):
     provider: str = "aliyun"
     model: str = "qwen3.8-flash"

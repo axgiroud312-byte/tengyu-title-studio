@@ -100,7 +100,7 @@ class TaskManager:
                          and (only_ids is None or i["id"] in only_ids)), None)
             if not item:
                 return
-            item.update(status="running", error=None, title=None, raw=None, char_count=None)
+            item.update(status="running", error=None, title=None, raw=None, char_count=None, language_check=None)
             self.store.save_item(item)
             attempt_id = self.store.begin_attempt(item["id"])
             options = TitleOptions.model_validate(batch["options"])
@@ -110,8 +110,11 @@ class TaskManager:
                 result = await self.providers[options.provider].generate_title(
                     Settings.model_validate(batch["settings"]), key, options, batch["skill"], image)
                 details = result.model_dump()
-                item.update(raw=result.raw, elapsed=result.elapsed,
-                            **evaluate_title(result.raw, result.finish, options.min_chars, options.max_chars))
+                item.update(raw=result.raw, elapsed=result.elapsed)
+                self.store.save_item(item)
+                evaluation = await asyncio.to_thread(evaluate_title, result.raw, result.finish,
+                                                     options.min_chars, options.max_chars, options.language)
+                item.update(raw=result.raw, elapsed=result.elapsed, **evaluation)
             except ProviderError as exc:
                 item.update(status="unknown" if exc.uncertain else "failed", error=str(exc), raw=exc.raw)
                 if exc.global_error:
@@ -128,7 +131,9 @@ class TaskManager:
             finally:
                 self.store.save_item(item)
                 self.store.finish_attempt(attempt_id, details | {"status": item["status"], "error": item["error"],
-                                                                "raw": item["raw"], "title": item["title"]})
+                                                                "raw": item["raw"], "title": item["title"],
+                                                                "char_count": item["char_count"],
+                                                                "language_check": item.get("language_check")})
 
     async def _run(self, identifier: str, key: str, only_ids: set[str] | None = None):
         batch = self.store.get("batch", identifier)
@@ -167,7 +172,7 @@ class TaskManager:
             for item in items:
                 await asyncio.to_thread(verify_source, item)
             for item in items:
-                item.update(status="pending", title=None, raw=None, char_count=None, error=None)
+                item.update(status="pending", title=None, raw=None, char_count=None, error=None, language_check=None)
                 self.store.save_item(item)
             batch.update(status="paused", error=None, exported_at=None)
             self.store.put("batch", identifier, batch)

@@ -23,6 +23,8 @@ jobs:
       - run: uv sync --frozen --python 3.12
       - run: uv run --no-sync ruff check backend tests
       - run: uv run --no-sync pytest -q
+        env:
+          TENGYU_REQUIRE_LINGUA: "1"
       - run: npm ci --no-audit --no-fund
         working-directory: frontend
       - run: npm run build

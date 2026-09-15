@@ -46,3 +46,49 @@ test('扫描按钮发送正确目录模式，缺少密钥时打开设置', async
   await expect(page.getByRole('dialog', { name: '服务设置' })).toBeVisible();
   await expect(page.getByLabel('API Key', { exact: true })).toHaveAttribute('type','password');
 });
+
+test('风险标题保留原因，可筛选查看，只有点击重新生成才发请求', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  const reason = '17 字符，少于要求的 200；语言不符：要求西班牙语，识别为英语。';
+  const languageCheck = { status: 'mismatch', requested: '西班牙语', detected: '英语', confidence: 0.96, message: '语言不符：要求西班牙语，识别为英语。' };
+  const batch = { id: 'risk-batch', mode: 'images', directory: 'C:\\商品图片', total: 2, created_at: '2026-09-15T00:00:00Z', status: 'completed', processed: 2, counts: { review: 1, completed: 1, pending: 0 }, options: { ...options, language: '西班牙语', min_chars: 200, max_chars: 220 }, error: null, export_error: null, exported_at: null, excel_path: 'C:\\商品图片\\标题.xlsx', skill_version: 'test' };
+  const items = ['001', '002'].map((sku, i) => ({ id: sku, sku, position: i, image_path: null, fingerprint: null, status: i === 0 ? 'review' : 'completed', title: i === 0 ? 'Blue floral scarf' : 'Título anterior', raw: 'Blue floral scarf', char_count: i === 0 ? 17 : 15, language_check: i === 0 ? languageCheck : null, elapsed: 1, error: i === 0 ? reason : null, input_error: null, warnings: [] }));
+  const retries: unknown[] = [];
+  await page.route('**/api/batches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/batches') return route.fulfill({ json: [batch] });
+    if (url.pathname.endsWith('/retry')) {
+      retries.push(route.request().postDataJSON());
+      return route.fulfill({ json: batch });
+    }
+    if (url.pathname.endsWith('/items')) {
+      const rows = url.searchParams.get('status') === 'review' ? items.slice(0, 1) : items;
+      return route.fulfill({ json: { items: rows, total: rows.length, page: 1, counts: batch.counts } });
+    }
+    if (url.pathname.endsWith('/items/001')) return route.fulfill({ json: { ...items[0], attempts: [{ id: 1, status: 'review', raw: items[0].raw, error: reason, language_check: languageCheck }] } });
+    if (url.pathname.endsWith('/items/002')) return route.fulfill({ json: items[1] });
+    return route.fulfill({ json: batch });
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '历史批次', exact: true }).click();
+  await page.getByRole('dialog', { name: '历史批次' }).getByRole('button', { name: /商品图片/ }).click();
+  await expect(page.getByRole('cell', { name: '有风险', exact: true })).toBeVisible();
+  await expect(page.getByText(reason, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '预览 002' }).click();
+  await expect(page.getByText('此历史标题尚未进行语言检查。')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^有风险/ }).click();
+  await expect(page.getByRole('cell', { name: '002', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '预览 001' }).click();
+  const detail = page.getByRole('dialog', { name: '001', exact: true });
+  await expect(detail.getByText('Blue floral scarf', { exact: true }).first()).toBeVisible();
+  await detail.getByText('第 1 次请求 · 有风险 · 原始结果', { exact: true }).click();
+  await expect(detail.locator('pre')).toHaveText('Blue floral scarf');
+  await page.keyboard.press('Escape');
+  expect(retries).toEqual([]);
+  await page.getByRole('checkbox', { name: '选择 001', exact: true }).check();
+  await page.getByRole('button', { name: '重新生成 1 项', exact: true }).click();
+  await expect.poll(() => retries.length).toBe(1);
+  expect(retries[0]).toEqual({ item_ids: ['001'] });
+});

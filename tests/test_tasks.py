@@ -4,6 +4,7 @@ import pytest
 
 from tengyu.files import scan_directory
 from tengyu.models import GenerationResult, TitleOptions
+from tengyu.models import LanguageCheck
 from tengyu.providers import ProviderError
 from tengyu.storage import Store
 from tengyu.tasks import TaskManager
@@ -131,3 +132,37 @@ async def test_duplicate_start_is_rejected(tmp_path, make_image, credentials):
         await manager.start(batch)
     await manager.tasks[batch]
     assert provider.calls == 3
+
+
+async def test_language_risk_persisted_exported_and_only_manual_retry(tmp_path, make_image, credentials, monkeypatch):
+    from openpyxl import load_workbook
+    import tengyu.files as files
+    checks = []
+    def check(title, requested):
+        checks.append((title, requested))
+        return LanguageCheck(status="mismatch" if len(checks) == 1 else "passed", requested=requested,
+                             detected="英语", message="语言不符：要求西班牙语，识别为英语。" if len(checks) == 1 else "通过")
+    monkeypatch.setattr(files, "check_language", check)
+    provider = FakeProvider()
+    manager, batch = setup(tmp_path, make_image, credentials, provider, count=1, language="西班牙语")
+    await manager.start(batch)
+    await manager.tasks[batch]
+    item = manager.store.items(batch)[0]
+    assert provider.calls == 1 and item["status"] == "review"
+    assert item["raw"] == "Blue product" and item["title"] == "Blue product"
+    assert checks == [("Blue product", "西班牙语")]
+    assert manager.store.attempts(item["id"])[0]["language_check"]["status"] == "mismatch"
+    book = load_workbook(manager.summary(batch)["excel_path"])
+    assert book.active["B2"].comment.text == item["error"]
+    assert book.active["B2"].fill.fgColor.rgb == "00FFF1C2"
+    assert list(book.active.values) == [("货号", "标题"), ("000", "Blue product")]
+    book.close()
+    await manager.retry(batch, [item["id"]])
+    await manager.tasks[batch]
+    updated = manager.store.item(item["id"])
+    assert provider.calls == 2 and updated["status"] == "completed" and updated["error"] is None
+    attempts = manager.store.attempts(item["id"])
+    assert [a["language_check"]["status"] for a in attempts] == ["mismatch", "passed"]
+    book = load_workbook(manager.summary(batch)["excel_path"])
+    assert book.active["B2"].comment is None
+    book.close()
