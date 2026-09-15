@@ -110,10 +110,18 @@ def check_language(title: str, requested: str) -> LanguageCheck:
             return LanguageCheck(status="mismatch", **details,
                                  message=f"语言不符：要求{requested}，识别为{detected}。")
         for foreign, fragment in _segments(text):
-            if foreign != target and len(regex.findall(r"\p{L}", fragment)) >= 4:
-                name = LANGUAGES.get(foreign, (foreign, foreign))[1]
-                return LanguageCheck(status="mixed", **details,
-                                     message=f"语言待确认：疑似夹杂{name}“{fragment.strip()[:40]}”；如为品牌或型号，请人工确认。")
+            if foreign == target or len(regex.findall(r"\p{L}", fragment)) < 8:
+                continue
+            # Experimental segmentation alone often mistakes shared words in
+            # related languages. Independently corroborate a substantial span.
+            fragment_scores = _scores(fragment)
+            if (not fragment_scores or fragment_scores[0][0] != foreign
+                    or fragment_scores[0][1] < MIN_CONFIDENCE
+                    or dict(fragment_scores).get(target, 0) > 0.20):
+                continue
+            name = LANGUAGES.get(foreign, (foreign, foreign))[1]
+            return LanguageCheck(status="mixed", **details,
+                                 message=f"语言待确认：疑似夹杂{name}“{fragment.strip()[:40]}”；如为品牌或型号，请人工确认。")
         return LanguageCheck(status="passed", **details, message=f"语言初检通过：{detected}。")
     except Exception:
         # Keep the title and fail closed if the native module cannot load/run.

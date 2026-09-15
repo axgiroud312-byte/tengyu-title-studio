@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from tengyu.language import LANGUAGES, check_language
+from tengyu.language import LANGUAGES, _scores, _segments, check_language
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -26,7 +26,11 @@ def test_language_catalog_matches_installed_lingua():
     ("女士蓝色花卉印花围巾，搭配装饰边框，适合日常穿搭", "中文", "passed"),
     ("Women's floral print scarf with a blue background and decorative border", "西班牙语", "mismatch"),
     ("女士蓝色花卉印花围巾，搭配装饰边框，适合日常穿搭", "英语", "mismatch"),
+    ("Camiseta para mujer con estampado de flores y mangas cortas, a comfortable shirt for everyday casual wear", "西班牙语", "risk"),
 ])
 def test_real_title_identification(text, target, expected):
     result = check_language(text, target)
-    assert result.status == expected, result.model_dump()
+    accepted = {"mixed", "mismatch", "uncertain"} if expected == "risk" else {expected}
+    if result.status not in accepted:
+        fragments = [(code, part, _scores(part)[:3]) for code, part in _segments(text)]
+        pytest.fail(f"{result.model_dump_json()}\nFragments: {fragments}")

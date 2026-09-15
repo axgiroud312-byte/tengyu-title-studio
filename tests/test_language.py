@@ -49,10 +49,19 @@ def test_low_confidence_is_risk_even_if_target_is_first(monkeypatch, scores):
 def test_foreign_fragment_is_review_not_language_purity_claim(monkeypatch):
     detector(monkeypatch, [("es", .96), ("en", .02)], [
         ("es", "Camiseta de mujer"), ("en", "summer casual top")])
+    monkeypatch.setattr(language, "_scores", lambda text: [("en", .96), ("es", .02)]
+                        if text == "summer casual top" else [("es", .96), ("en", .02)])
     result = evaluate_title("Camiseta de mujer summer casual top", "stop", None, None, "西班牙语")
     assert result["status"] == "review"
     assert result["language_check"]["status"] == "mixed"
     assert "summer casual top" in result["error"]
+
+
+def test_unconfirmed_segmentation_does_not_override_full_title(monkeypatch):
+    detector(monkeypatch, [("es", .96), ("pt", .02)], [("pt", "Camiseta para mujer")])
+    # The segmenter guessed Portuguese; the independent classifier disagrees.
+    result = language.check_language("Camiseta para mujer con estampado de flores", "西班牙语")
+    assert result.status == "passed"
 
 
 def test_numbers_units_and_emoji_do_not_prove_language(monkeypatch):
