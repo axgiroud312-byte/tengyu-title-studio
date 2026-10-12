@@ -111,7 +111,7 @@ class Store:
                 self.put("batch", batch["id"], batch)
             for item in self.items(batch["id"]):
                 if item["status"] == "running":
-                    item.update(status="unknown", error="请求中断，结果未知；可能已计费，请手动决定是否重试。")
+                    item.update(status="unknown", error="请求中断，结果未知；可能已计费，请决定是否重新生成。")
                     self.save_item(item)
                     for attempt in self.attempts(item["id"]):
                         if attempt["status"] == "running":

@@ -25,6 +25,55 @@ from .storage import Store
 from .tasks import SKILL_PATH, TaskManager
 
 
+def validation_error_message(error: dict) -> dict[str, str]:
+    location = error["loc"][1:]
+    field = ".".join(map(str, location))
+    labels = {
+        "base_url": "生成服务地址", "models_url": "模型列表地址", "workspace_id": "业务空间 ID",
+        "api_key": "API 密钥", "defaults": "生成设置", "options": "生成设置", "provider": "模型服务商",
+        "model": "生成模型", "thinking": "深度思考", "language": "目标语言", "min_chars": "最少字符数",
+        "max_chars": "最多字符数", "requirements": "补充要求", "concurrency": "同时处理数量",
+        "directory": "商品文件夹", "mode": "商品识别方式", "scan_id": "扫描记录",
+        "item_ids": "所选商品", "page": "页码",
+    }
+    label = next((labels[part] for part in reversed(location) if part in labels), "提交内容")
+    kind, context = error["type"], error.get("ctx", {})
+    if kind == "missing":
+        message = f"请填写{label}。"
+    elif kind in {"int_parsing", "int_type", "int_from_float"}:
+        message = f"{label}请填写整数。"
+    elif kind in {"float_parsing", "float_type", "finite_number"}:
+        message = f"{label}请填写有效数字。"
+    elif kind in {"greater_than_equal", "less_than_equal", "greater_than", "less_than"}:
+        comparison, key = {
+            "greater_than_equal": ("不能小于", "ge"), "less_than_equal": ("不能大于", "le"),
+            "greater_than": ("必须大于", "gt"), "less_than": ("必须小于", "lt"),
+        }[kind]
+        message = f"{label}{comparison} {context[key]}。"
+    elif kind == "string_too_short":
+        limit = context["min_length"]
+        message = f"{label}不能为空。" if limit == 1 else f"{label}至少需要 {limit} 个字符。"
+    elif kind == "string_too_long":
+        message = f"{label}不能超过 {context['max_length']} 个字符。"
+    elif kind in {"too_short", "too_long"}:
+        comparison, key = ("至少需要", "min_length") if kind == "too_short" else ("不能超过", "max_length")
+        message = f"{label}{comparison} {context[key]} 项。"
+    elif kind == "string_type":
+        message = f"{label}请填写文字。"
+    elif kind in {"bool_type", "bool_parsing", "literal_error"}:
+        message = f"{label}的选项无效，请重新选择。"
+    elif kind == "extra_forbidden":
+        message = "包含不支持的字段，请移除后再提交。"
+    elif kind == "json_invalid":
+        message = "提交内容无法解析，请重新填写后再提交。"
+    elif kind in {"empty_text", "character_range", "service_url", "models_url", "workspace_id"}:
+        # Only these application-defined messages are safe to show; never echo input or arbitrary error text.
+        message = error["msg"] if kind == "character_range" else f"{label}：{error['msg']}"
+    else:
+        message = f"{label}格式不正确，请检查后重新提交。"
+    return {"field": field, "message": message}
+
+
 def data_directory():
     return Path(os.environ.get("TENGYU_DATA_DIR", user_data_path("TengyuTitleStudio", appauthor=False)))
 
@@ -73,8 +122,8 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
 
     @app.exception_handler(RequestValidationError)
     async def validation(request, exc):
-        errors = [{"field": ".".join(map(str, e["loc"][1:])), "message": e["msg"]} for e in exc.errors()]
-        return JSONResponse({"detail": "设置内容有误，请检查输入。", "errors": errors}, status_code=422)
+        errors = [validation_error_message(error) for error in exc.errors()]
+        return JSONResponse({"detail": "填写内容有误，请检查提示后修改。", "errors": errors}, status_code=422)
 
     @app.exception_handler(ProviderError)
     async def provider_error(request, exc):
@@ -102,7 +151,7 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
     @app.put("/api/settings")
     async def save_settings(body: SettingsUpdate):
         if any(not t.done() for t in manager.tasks.values()):
-            raise ValueError("请先暂停并等待当前请求收尾，再修改服务设置。")
+            raise ValueError("请先暂停生成，等待当前请求结束后再修改设置。")
         previous = manager.settings()
         new = Settings.model_validate(body.model_dump(exclude={"api_key"}))
         if body.api_key is not None:
@@ -135,13 +184,13 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
             raise HTTPException(404, "服务商尚未接入")
         key = await asyncio.to_thread(manager.credentials.get, provider)
         if not key:
-            raise ValueError("请先在设置中保存 API Key。")
+            raise ValueError("请先在设置中保存 API 密钥。")
         try:
             rows = await manager.providers[provider].list_models(manager.settings(), key)
         except httpx.HTTPError as exc:
-            raise ValueError("模型目录连接失败，请检查网络；已有列表已保留。") from exc
+            raise ValueError("模型列表获取失败，请检查网络后刷新；已有列表已保留。") from exc
         if not rows:
-            raise ValueError("目录未返回可看图写标题的模型，已有列表已保留。")
+            raise ValueError("未获取到支持图片输入和文字输出的模型，已有列表已保留。")
         result = {"models": [m.model_dump() for m in rows]}
         store.put("models", provider, result)
         return result
@@ -151,7 +200,7 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
         try:
             result = await asyncio.to_thread(scan_directory, body.directory, body.mode)
         except OSError as exc:
-            raise ValueError("无法读取此目录，请检查路径和访问权限。") from exc
+            raise ValueError("无法读取商品文件夹，请检查路径和访问权限。") from exc
         store.put("scan", result["id"], result)
         return {k: v for k, v in result.items() if k != "items"} | {"total": len(result["items"])}
 
@@ -159,8 +208,7 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
         counts = {name: sum(i["status"] == name for i in items) for name in (
             "pending", "running", "completed", "review", "failed", "unknown")}
         if status != "all":
-            accepted = {"failed", "unknown"} if status == "failed" else {status}
-            items = [i for i in items if i["status"] in accepted]
+            items = [i for i in items if i["status"] == status]
         result = [{k: v for k, v in i.items() if k != "raw"} for i in items[(page-1)*50:page*50]]
         return {"items": result, "total": len(items), "page": page, "page_size": 50, "counts": counts}
 
@@ -189,7 +237,7 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
     def detail(batch_id: str, item_id: str):
         item = store.item(item_id)
         if item["batch_id"] != batch_id:
-            raise HTTPException(404, "项目不存在")
+            raise HTTPException(404, "商品记录不存在。")
         return item | {"attempts": store.attempts(item_id)}
 
     @app.get("/api/images/{kind}/{identifier}/{item_id}")

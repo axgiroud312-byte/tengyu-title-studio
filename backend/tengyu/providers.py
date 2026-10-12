@@ -27,15 +27,15 @@ class Credentials:
         try:
             return keyring.get_password(self.service, provider)
         except Exception as exc:
-            raise ValueError("无法读取系统凭据，请检查 Windows 凭据管理器后重新保存 API Key。") from exc
+            raise ValueError("无法读取 API 密钥，请检查 Windows 凭据管理器后重新保存。") from exc
 
     def set(self, provider: str, key: str):
         try:
             if not key.strip():
-                raise ValueError("API Key 不能为空")
+                raise ValueError("API 密钥不能为空。")
             keyring.set_password(self.service, provider, key.strip())
         except Exception as exc:
-            raise ValueError("系统无法安全保存 API Key，请检查系统凭据服务。") from exc
+            raise ValueError("系统无法安全保存 API 密钥，请检查系统凭据服务。") from exc
 
 
 class TextProvider(Protocol):
@@ -80,14 +80,14 @@ def http_error(status: int, body: bytes = b"") -> ProviderError:
     billing = any(x in code for x in ("arrearage", "insufficient_quota", "insufficient_balance"))
     messages = {
         400: "请求参数不兼容，请检查模型和思考设置。",
-        401: "API Key 无效或地域不匹配，请在设置中检查密钥和服务地址。",
+        401: "API 密钥无效或地域不匹配，请在设置中检查 API 密钥和生成服务地址。",
         402: "账户余额不足，请充值后手动继续。",
         403: "模型访问被拒绝，请检查模型开通状态和账号权限。",
         404: "服务地址或模型不存在，请检查完整模型 ID 和服务地址。",
-        429: "请求受到限流，请降低并发数，稍后手动重试。",
+        429: "请求过于频繁，请稍后重试。若多次出现，请在设置中调低‘同时处理数量’，再新建批次。",
     }
     message = "账户额度或余额不足，请检查阿里云控制台。" if billing else messages.get(
-        status, "模型服务暂时不可用，请稍后手动重试。")
+        status, "模型请求未成功，请检查服务配置或稍后重新生成。")
     return ProviderError(message, global_error=billing or status in {401, 402, 403, 404})
 
 
@@ -111,7 +111,7 @@ class Aliyun:
                                             headers={"Authorization": f"Bearer {key}"})
                 if not response.is_success:
                     if response.status_code == 404:
-                        raise ProviderError("模型目录地址不可用。北京地域请填写业务空间 ID，或填写官方模型目录地址；原列表已保留。")
+                        raise ProviderError("模型列表地址不可用。北京地域请填写业务空间 ID，或填写官方模型列表地址；原列表已保留。")
                     raise http_error(response.status_code, response.content)
                 try:
                     body = response.json()
@@ -122,7 +122,7 @@ class Aliyun:
                     if not rows and (page - 1) * 100 < total:
                         raise ValueError()
                 except (KeyError, ValueError, TypeError) as exc:
-                    raise ProviderError("模型目录响应格式异常，原列表已保留。") from exc
+                    raise ProviderError("模型列表响应格式异常，原列表已保留。") from exc
                 for row in rows:
                     name = row.get("model")
                     if not isinstance(name, str) or not name or name in seen:
@@ -139,7 +139,7 @@ class Aliyun:
                                                 thinking=thinking_mode(name)))
                 if page * 100 >= total:
                     return models
-            raise ProviderError("模型目录分页超出预期，原列表已保留。")
+            raise ProviderError("模型列表分页超出预期，原列表已保留。")
 
     async def generate_title(self, settings: Settings, key: str, options: TitleOptions,
                              skill: str, image: str) -> GenerationResult:
@@ -176,7 +176,7 @@ class Aliyun:
                                 raise ProviderError("模型回复超出大小限制，已停止接收。", raw="".join(parts))
                             chunk = json.loads(data)
                             if chunk.get("error"):
-                                raise ProviderError("模型在生成过程中返回错误，未自动重试。", raw="".join(parts))
+                                raise ProviderError("模型在生成过程中返回错误，未自动重新生成。", raw="".join(parts))
                             usage = chunk.get("usage") or usage
                             choices = chunk.get("choices") or []
                             if choices:
@@ -188,10 +188,10 @@ class Aliyun:
         except ProviderError:
             raise
         except (httpx.HTTPError, TimeoutError) as exc:
-            raise ProviderError("连接中断或请求超时，结果未知且可能已计费；没有自动重试。",
+            raise ProviderError("连接中断或请求超时，结果未知且可能已计费；未自动重新生成。",
                                 raw="".join(parts), uncertain=True) from exc
         except (ValueError, KeyError, TypeError) as exc:
-            raise ProviderError("模型回复格式异常，原始正文已保留。", raw="".join(parts)) from exc
+            raise ProviderError("模型回复格式异常，原始结果已保留。", raw="".join(parts)) from exc
         return GenerationResult(raw="".join(parts), finish=finish, usage=usage,
                                 request_id=request_id, elapsed=round(time.monotonic() - start, 2))
 

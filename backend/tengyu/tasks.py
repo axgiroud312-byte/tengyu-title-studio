@@ -41,11 +41,11 @@ class TaskManager:
             raise ValueError("尚未接入此服务商")
         model = next((m for m in self.models(options.provider) if m.id == options.model), None)
         if model is None:
-            raise ValueError("请从当前模型目录中选择模型。")
+            raise ValueError("请从当前模型列表中选择模型。")
         validate_model(model, options)
         scan = self.store.get("scan", scan_id)
         if not scan["items"]:
-            raise ValueError("此目录没有待处理的商品。")
+            raise ValueError("商品文件夹中没有待处理的商品。")
         check_output(Path(scan["directory"]))
         identifier = uuid.uuid4().hex
         skill = SKILL_PATH.read_text(encoding="utf-8")
@@ -71,13 +71,13 @@ class TaskManager:
         async with self.control_lock:
             batch = self.store.get("batch", identifier)
             if identifier in self.tasks and not self.tasks[identifier].done():
-                raise ValueError("当前批次正在运行或收尾，请稍候。")
+                raise ValueError("当前批次仍在处理请求，请等待当前请求结束。")
             if any(not t.done() for t in self.tasks.values()):
                 raise ValueError("请先暂停其他运行中的批次。")
             check_output(Path(batch["directory"]))
             key = self.credentials.get(batch["options"]["provider"])
             if not key:
-                raise ValueError("请先在设置中保存阿里云 API Key。")
+                raise ValueError("请先在设置中保存阿里云 API 密钥。")
             for item in self.store.items(identifier):
                 if item["status"] == "pending" and (only_ids is None or item["id"] in only_ids):
                     try:
@@ -119,10 +119,10 @@ class TaskManager:
                     current.update(status="pausing", error=str(exc))
                     self.store.put("batch", identifier, current)
             except asyncio.CancelledError:
-                item.update(status="unknown", error="程序已退出，请求结果未知；请手动决定是否重试。")
+                item.update(status="unknown", error="程序已退出，请求结果未知且可能已计费；请决定是否重新生成。")
                 raise
             except (ValueError, OSError):
-                item.update(status="failed", error="图片发生变化或无法处理，请重新扫描此目录。")
+                item.update(status="failed", error="图片发生变化或无法处理，请重新扫描商品文件夹。")
             except Exception:
                 item.update(status="failed", error="处理出现异常，原始记录已保留；请重新打开程序后查看。")
             finally:
@@ -154,16 +154,16 @@ class TaskManager:
         async with self.control_lock:
             batch = self.store.get("batch", identifier)
             if batch["status"] in {"running", "pausing"} or any(not t.done() for t in self.tasks.values()):
-                raise ValueError("请等待当前请求收尾后再重试。")
+                raise ValueError("请等待当前请求结束后再重新生成。")
             items = [self.store.item(i) for i in set(item_ids)]
             if any(i["batch_id"] != identifier for i in items):
-                raise ValueError("选中商品不属于此批次")
+                raise ValueError("所选商品不属于当前批次，请重新选择商品。")
             if any(i["status"] in {"pending", "running"} for i in items):
-                raise ValueError("待处理项目请使用继续生成。")
+                raise ValueError("待处理商品请点击‘继续生成’。")
             if any(i["input_error"] for i in items):
-                raise ValueError("包含图片输入错误的项目，请修复图片后重新扫描。")
+                raise ValueError("所选商品中有图片无法使用，请修复图片后重新扫描。")
             if not self.credentials.get(batch["options"]["provider"]):
-                raise ValueError("请先在设置中保存 API Key。")
+                raise ValueError("请先在设置中保存 API 密钥。")
             for item in items:
                 await asyncio.to_thread(verify_source, item)
             for item in items:
@@ -182,7 +182,8 @@ class TaskManager:
                 batch.update(exported_at=now(), export_error=None)
             except (ValueError, OSError) as exc:
                 batch = self.store.get("batch", identifier)
-                batch["export_error"] = str(exc) if isinstance(exc, ValueError) else "保存 Excel 失败，请检查目录权限和磁盘空间。"
+                batch["export_error"] = str(exc) if isinstance(exc, ValueError) else (
+                    "Excel 保存失败，请检查文件夹写入权限和磁盘空间，再点击‘重新导出 Excel’。")
             self.store.put("batch", identifier, batch)
         return self.summary(identifier)
 

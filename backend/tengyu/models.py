@@ -5,6 +5,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 Thinking = Literal["switchable", "on", "off", "unknown"]
 
@@ -27,13 +28,13 @@ class TitleOptions(StrictModel):
     @classmethod
     def clean_text(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("不能为空")
+            raise PydanticCustomError("empty_text", "不能为空。")
         return value.strip()
 
     @model_validator(mode="after")
     def valid_range(self):
         if self.min_chars and self.max_chars and self.min_chars > self.max_chars:
-            raise ValueError("最少字符不能大于最多字符")
+            raise PydanticCustomError("character_range", "最少字符数不能大于最多字符数。")
         return self
 
 
@@ -49,12 +50,15 @@ class Settings(StrictModel):
         value = value.strip().rstrip("/")
         if not value and info.field_name == "models_url":
             return value
-        url = urlsplit(value)
+        try:
+            url = urlsplit(value)
+        except ValueError as exc:
+            raise PydanticCustomError("service_url", "请输入有效的 HTTPS 地址。") from exc
         if (url.scheme != "https" or not url.hostname or url.username or url.password
                 or url.query or url.fragment):
-            raise ValueError("请输入不含密钥或查询参数的 HTTPS 服务地址")
+            raise PydanticCustomError("service_url", "请输入不含密钥或查询参数的 HTTPS 地址。")
         if info.field_name == "models_url" and url.path != "/api/v1/models":
-            raise ValueError("模型目录地址必须以 /api/v1/models 结尾")
+            raise PydanticCustomError("models_url", "地址必须以 /api/v1/models 结尾。")
         return value
 
     @field_validator("workspace_id")
@@ -62,7 +66,7 @@ class Settings(StrictModel):
     def valid_workspace(cls, value):
         value = value.strip()
         if value and not re.fullmatch(r"[A-Za-z0-9-]+", value):
-            raise ValueError("业务空间 ID 只能包含字母、数字和连字符")
+            raise PydanticCustomError("workspace_id", "只能包含字母、数字和连字符。")
         return value
 
 

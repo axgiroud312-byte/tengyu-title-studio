@@ -2,7 +2,7 @@
 
 全中文、蓝白风格的跨境电商标题批处理桌面程序。用 **Python + FastAPI** 处理本地图片与模型调用，通过 **React + pywebview** 显示独立窗口，输出只有「货号、标题」两列的 Excel。
 
-> 当前交付为源代码。仓库包含 Windows 打包脚本和手动构建工作流；尚未发布经过 Windows 安装验收的安装包。真实阿里云调用需要自行在界面中配置 API Key。
+> 已在本机完成 Windows 构建，安装包位于 `dist/installer/TengyuTitleStudio-Setup-0.1.0-x64.exe`，构建产物不纳入 Git。打包程序的启动、页面加载、图片扫描和设置弹窗已验证；尚未完成干净 Windows 系统上的安装、升级和卸载验收。真实阿里云调用需要自行在界面中配置 API Key。
 
 ![蓝白界面预览](docs/ui-empty.png)
 

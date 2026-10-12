@@ -17,5 +17,6 @@ analysis = Analysis(
 )
 pyz = PYZ(analysis.pure)
 exe = EXE(pyz, analysis.scripts, [], exclude_binaries=True, name="TengyuTitleStudio",
+          icon=str(root / "backend" / "tengyu" / "resources" / "app.ico"),
           console=False, debug=False, strip=False, upx=False)
 collection = COLLECT(exe, analysis.binaries, analysis.datas, strip=False, upx=False, name="TengyuTitleStudio")

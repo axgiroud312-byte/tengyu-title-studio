@@ -9,13 +9,19 @@ export type Batch = Scan & { created_at: string; status: string; processed: numb
 type Bridge = { bootstrap(): Promise<{ token: string }>; choose_directory(): Promise<string | null>; open_output(batch: string, directory: boolean): Promise<{ ok?: boolean; error?: string }> };
 declare global { interface Window { pywebview?: { api: Bridge } } }
 
+async function request(path: string, init: RequestInit) {
+  try { return await fetch(path, init); }
+  catch { throw new Error('无法连接本地服务。请确认程序仍在运行，重新打开后查看批次状态。'); }
+}
+
 export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch('/api' + path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await request('/api' + path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) {
-    const data = await response.json().catch(() => ({ detail: '本地服务连接异常，请重新打开程序。' }));
-    throw new Error(data.errors?.map((e: { message: string }) => e.message).join('；') || data.detail || '操作未完成，请重试。');
+    const data = await response.json().catch(() => ({ detail: '本地服务返回异常。请重新打开程序后查看批次状态。' }));
+    throw new Error(data.errors?.map((e: { message: string }) => e.message).join('；') || data.detail || '未能确认操作结果，请查看当前批次状态。');
   }
-  return response.json();
+  try { return await response.json(); }
+  catch { throw new Error('本地服务返回异常。请重新打开程序后查看批次状态。'); }
 }
 
 export async function connect() {
@@ -30,11 +36,13 @@ export async function connect() {
   }
   if (!token && window.pywebview) token = (await window.pywebview.api.bootstrap()).token;
   if (token) {
-    const response = await fetch('/api/session', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+    const response = await request('/api/session', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
     if (!response.ok) throw new Error('窗口连接失败，请重新打开程序。');
   }
   return api<Settings>('/settings');
 }
 
 export const defaults: Options = { provider: 'aliyun', model: 'qwen3.8-flash', thinking: false, language: '英语', min_chars: null, max_chars: null, requirements: '', concurrency: 3 };
-export const statusText: Record<string, string> = { pending: '待处理', running: '生成中', completed: '已完成', review: '需检查', failed: '失败', unknown: '结果未知', ready: '待开始', paused: '已暂停', pausing: '正在收尾' };
+export const statusText: Record<string, string> = { pending: '待生成', running: '生成中', completed: '已生成', review: '需检查', failed: '生成失败', unknown: '结果未知' };
+export const batchStatusText: Record<string, string> = { ready: '待开始', running: '生成中', paused: '已暂停', pausing: '正在暂停', completed: '处理结束' };
+export const unknownResultHelp = '未收到完整结果，可能已计费。请查看详情后决定是否重新生成。';

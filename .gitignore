@@ -16,3 +16,5 @@ packaging/vendor/
 *.tsbuildinfo
 frontend/test-results/
 frontend/playwright-report/
+.serena/
+output/playwright/

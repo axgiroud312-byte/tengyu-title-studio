@@ -45,7 +45,7 @@ class Bridge:
             open_path(path)
             return {"ok": True}
         except (KeyError, OSError):
-            return {"error": "无法打开文件，请在资源管理器中查看输出目录。"}
+            return {"error": "无法打开文件，请在资源管理器中查看商品文件夹。"}
 
 
 def show_error(message: str):
@@ -90,7 +90,7 @@ def main():
                                        background_color="#EFF6FF", text_select=True)
         bridge._window = window
         webview.start(gui="edgechromium" if sys.platform == "win32" else None, debug=False,
-                      private_mode=True)
+                      private_mode=True, icon=str(Path(__file__).resolve().parent / "resources" / "app.ico"))
     except Exception:
         show_error("程序启动失败。Windows 请确认 WebView2 已安装，或重新运行安装包修复。")
     finally:

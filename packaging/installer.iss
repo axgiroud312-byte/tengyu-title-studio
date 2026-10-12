@@ -18,14 +18,17 @@ OutputBaseFilename=TengyuTitleStudio-Setup-{#AppVersion}-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\backend\tengyu\resources\app.ico
 UninstallDisplayIcon={app}\TengyuTitleStudio.exe
 CloseApplications=yes
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
 
-[Messages]
+[LangOptions]
 LanguageName=简体中文
+
+[Messages]
 WelcomeLabel1=欢迎安装 腾域 ai 写标题
 WelcomeLabel2=安装程序将把 [name/ver] 安装到你的电脑。%n%n请关闭正在运行的程序，然后单击“下一步”。
 ButtonNext=下一步(&N) >

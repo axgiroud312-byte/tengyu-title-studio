@@ -40,7 +40,7 @@ def fingerprint(path: Path) -> str:
 
 def read_image(path: Path) -> Image.Image:
     if not path.is_file() or path.is_symlink():
-        raise ValueError("图片不存在或是快捷链接，请重新扫描目录。")
+        raise ValueError("图片不存在或是快捷链接，请重新扫描商品文件夹。")
     if path.stat().st_size > 100 * 1024 * 1024:
         raise ValueError("图片超过 100 MB，请先缩小图片后重新扫描。")
     try:
@@ -62,12 +62,12 @@ def read_image(path: Path) -> Image.Image:
 
 def check_output(directory: Path):
     if not directory.is_dir():
-        raise ValueError("目录不存在，请重新选择。")
+        raise ValueError("商品文件夹不存在，请重新选择。")
     try:
         with tempfile.TemporaryFile(dir=directory):
             pass
     except OSError as exc:
-        raise ValueError("此目录无法写入 Excel，请为该目录开启写入权限。") from exc
+        raise ValueError("无法在商品文件夹保存 Excel，请检查文件夹写入权限和磁盘空间。") from exc
 
 
 def scan_directory(directory: str, mode: str) -> dict:
@@ -92,7 +92,7 @@ def scan_directory(directory: str, mode: str) -> dict:
             read_image(path).close()
             checksum = fingerprint(path)
         except (ValueError, OSError) as exc:
-            error = str(exc) if isinstance(exc, ValueError) else "无法读取文件，请检查目录权限。"
+            error = str(exc) if isinstance(exc, ValueError) else "无法读取文件，请检查文件夹访问权限。"
         items.append({"id": uuid.uuid4().hex, "position": position, "sku": sku,
                       "image_path": str(path) if path else None, "fingerprint": checksum,
                       "status": "failed" if error else "pending", "input_error": error,
@@ -149,14 +149,14 @@ def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: i
     if ("\n" in text or "\r" in text or text.startswith(("{", "[", "```", "标题：", "标题:", '"', "“"))
             or re.match(r"^(?:\d+[.)、]|[-*#])\s", text) or "<think>" in text.lower()):
         return {"status": "failed", "title": None, "char_count": None,
-                "error": "返回内容不是单条纯标题，请查看原始结果后手动重试。"}
+                "error": "返回内容不是单条标题，请查看原始结果后决定是否重新生成。"}
     title = regex.sub(r"\s+", " ", text)
     count = len(regex.findall(r"\X", title))
     issues = []
     if minimum and count < minimum:
-        issues.append(f"{count} 字符，少于要求的 {minimum}")
+        issues.append(f"字符数为 {count}，少于要求的 {minimum}")
     if maximum and count > maximum:
-        issues.append(f"{count} 字符，超过要求的 {maximum}")
+        issues.append(f"字符数为 {count}，超过要求的 {maximum}")
     if "|" in title:
         issues.append("含标题规则禁用的竖线符号")
     return {"title": title, "char_count": count, "status": "review" if issues else "completed",
@@ -198,7 +198,7 @@ def export_excel(batch: dict, items: list[dict]) -> str:
         book.save(temp)
         os.replace(temp, path)
     except PermissionError as exc:
-        raise ValueError("Excel 文件被占用或无写入权限，请关闭表格后点击重新导出。") from exc
+        raise ValueError("Excel 保存失败，请关闭已打开的表格并检查文件夹写入权限，再点击‘重新导出 Excel’。") from exc
     finally:
         book.close()
         temp.unlink(missing_ok=True)
