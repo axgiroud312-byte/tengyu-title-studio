@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import pytest
 from openpyxl import load_workbook
@@ -87,3 +88,50 @@ def test_export_preserves_existing_file_on_invalid_data(tmp_path):
     with pytest.raises(ValueError):
         export_excel({"excel_path": str(path)}, [{"sku": "1", "title": "bad\x00text", "status": "completed"}])
     assert path.read_bytes() == b"previous"
+
+
+@pytest.mark.parametrize("title,count", [(" 商品  title ", 8), ("👩‍👩‍👧‍👦", 1), ("e\u0301", 1), ("ก้", 1)])
+def test_json_visible_characters(title, count):
+    raw = json.dumps({"title": title, "char_count": count}, ensure_ascii=False, indent=2)
+    result = evaluate_title(raw, "stop", count, count, output_format="json")
+    assert result["status"] == "completed"
+    assert result["char_count"] == result["reported_char_count"] == count
+    assert "{" not in result["title"]
+
+
+@pytest.mark.parametrize("raw", [
+    "ABC", '```json\n{"title":"ABC","char_count":3}\n```',
+    '{"title":"ABC"}', '{"title":"ABC","char_count":"3"}',
+    '{"title":"ABC","char_count":true}', '{"title":"ABC","char_count":3.0}',
+    '{"title":"ABC","char_count":-1}', '{"title":null,"char_count":0}',
+    '{"title":"ABC","char_count":3,"extra":1}', '[]', 'null',
+    '{"title":"ABC","char_count":3', '{"title":"one\\ntwo","char_count":7}',
+])
+def test_invalid_json_title_is_not_exportable(raw):
+    result = evaluate_title(raw, "stop", None, None, output_format="json")
+    assert result["status"] == "failed" and result["title"] is None
+
+
+def test_json_count_mismatch_and_range_use_actual_count(tmp_path):
+    raw = '{"title":"ABC","char_count":5}'
+    result = evaluate_title(raw, "stop", 5, 10, output_format="json")
+    assert result["status"] == "review" and result["title"] == "ABC"
+    assert result["reported_char_count"] == 5 and result["char_count"] == 3
+    assert "AI 自报 5 字符，程序实算 3 字符" in result["error"]
+    assert "少于要求" in result["error"]
+    path = tmp_path / "result.xlsx"
+    export_excel({"excel_path": str(path)}, [{"sku": "001", **result}])
+    book = load_workbook(path)
+    assert list(book.active.values) == [("货号", "标题"), ("001", "ABC")]
+    assert book.active["B2"].comment.text == result["error"]
+    book.close()
+
+
+def test_json_mismatch_alone_requires_review():
+    result = evaluate_title('{"title":"ABC","char_count":9}', "stop", None, None, output_format="json")
+    assert result["status"] == "review" and result["char_count"] == 3
+
+
+def test_json_incomplete_response_is_not_exportable():
+    result = evaluate_title('{"title":"ABC","char_count":3}', "length", None, None, output_format="json")
+    assert result["status"] == "failed" and result["title"] is None

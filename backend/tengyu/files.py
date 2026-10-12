@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
 import os
 import re
 import tempfile
@@ -138,12 +139,27 @@ def thumbnail(item: dict) -> bytes:
         image.close()
 
 
-def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: int | None) -> dict:
+def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: int | None,
+                   *, output_format: str = "text") -> dict:
     # Original body is stored separately. No language/semantic claim is inferred here.
     if finish != "stop":
         return {"status": "failed", "title": None, "char_count": None,
                 "error": "模型响应未完整结束，原始内容已保存。"}
-    text = raw.strip()
+    reported_count = None
+    if output_format == "json":
+        try:
+            payload = json.loads(raw)
+            if (not isinstance(payload, dict) or set(payload) != {"title", "char_count"}
+                    or not isinstance(payload["title"], str)
+                    or type(payload["char_count"]) is not int or payload["char_count"] < 0):
+                raise ValueError()
+            text = payload["title"].strip()
+            reported_count = payload["char_count"]
+        except (ValueError, TypeError):
+            return {"status": "failed", "title": None, "char_count": None,
+                    "error": "模型未返回有效的标题 JSON（title 和整数 char_count），请查看原始结果后决定是否重新生成。"}
+    else:
+        text = raw.strip()
     if not text:
         return {"status": "failed", "title": None, "char_count": None, "error": "模型未返回标题正文。"}
     if ("\n" in text or "\r" in text or text.startswith(("{", "[", "```", "标题：", "标题:", '"', "“"))
@@ -153,13 +169,16 @@ def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: i
     title = regex.sub(r"\s+", " ", text)
     count = len(regex.findall(r"\X", title))
     issues = []
+    if reported_count is not None and reported_count != count:
+        issues.append(f"AI 自报 {reported_count} 字符，程序实算 {count} 字符")
     if minimum and count < minimum:
         issues.append(f"{count} 字符，少于要求的 {minimum}")
     if maximum and count > maximum:
         issues.append(f"{count} 字符，超过要求的 {maximum}")
     if "|" in title:
         issues.append("含标题规则禁用的竖线符号")
-    return {"title": title, "char_count": count, "status": "review" if issues else "completed",
+    return {"title": title, "char_count": count, "reported_char_count": reported_count,
+            "status": "review" if issues else "completed",
             "error": "；".join(issues) or None}
 
 

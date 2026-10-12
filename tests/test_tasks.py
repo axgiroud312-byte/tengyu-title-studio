@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -20,7 +21,8 @@ class FakeProvider:
         await asyncio.sleep(self.delay)
         if self.error:
             raise self.error
-        return GenerationResult(raw="Blue product", finish="stop", elapsed=0.1)
+        return GenerationResult(raw=json.dumps({"title": "Blue product", "char_count": 12}),
+                                finish="stop", elapsed=0.1)
 
 
 def setup(tmp_path, make_image, credentials, provider, count=3, **options):
@@ -43,6 +45,14 @@ async def test_single_generation_review_and_selected_retry(tmp_path, make_image,
     items = manager.store.items(batch)
     assert provider.calls == 3 and all(i["status"] == "review" for i in items)
     assert manager.summary(batch)["exported_at"]
+    assert all(i["title"] == "Blue product" and i["reported_char_count"] == 12 for i in items)
+    attempt = manager.store.attempts(items[0]["id"])[0]
+    assert attempt["char_count"] == attempt["reported_char_count"] == 12
+    from openpyxl import load_workbook
+    book = load_workbook(manager.summary(batch)["excel_path"])
+    assert list(book.active.values)[1] == ("000", "Blue product")
+    assert book.active.max_column == 2
+    book.close()
     await manager.retry(batch, [items[1]["id"]])
     await manager.tasks[batch]
     assert provider.calls == 4
@@ -131,3 +141,35 @@ async def test_duplicate_start_is_rejected(tmp_path, make_image, credentials):
         await manager.start(batch)
     await manager.tasks[batch]
     assert provider.calls == 3
+
+
+async def test_legacy_batch_keeps_plain_text_protocol(tmp_path, make_image, credentials):
+    class LegacyProvider:
+        async def generate_title(self, settings, key, options, skill, image):
+            assert skill == "最终只输出标题本身。"
+            return GenerationResult(raw="Blue product", finish="stop")
+
+    manager, batch = setup(tmp_path, make_image, credentials, LegacyProvider(), count=1)
+    record = manager.store.get("batch", batch)
+    record.pop("output_format")
+    record["skill"] = "最终只输出标题本身。"
+    manager.store.put("batch", batch, record)
+    await manager.start(batch)
+    await manager.tasks[batch]
+    item = manager.store.items(batch)[0]
+    assert item["status"] == "completed" and item["title"] == "Blue product"
+    assert item["reported_char_count"] is None
+
+
+async def test_retry_clears_previous_reported_count(tmp_path, make_image, credentials):
+    provider = FakeProvider()
+    manager, batch = setup(tmp_path, make_image, credentials, provider, count=1)
+    await manager.start(batch)
+    await manager.tasks[batch]
+    item = manager.store.items(batch)[0]
+    provider.error = ProviderError("请求失败")
+    await manager.retry(batch, [item["id"]])
+    await manager.tasks[batch]
+    item = manager.store.item(item["id"])
+    assert item["reported_char_count"] is None and item["char_count"] is None
+    assert item["title"] is None and item["status"] == "failed"
