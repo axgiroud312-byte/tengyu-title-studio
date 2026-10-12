@@ -53,6 +53,7 @@ class TaskManager:
                  "options": options.model_dump(), "settings": self.settings().model_dump(),
                  "model_info": model.model_dump(), "skill": skill,
                  "skill_version": hashlib.sha256(skill.encode()).hexdigest()[:12],
+                 "output_format": "json",
                  "status": "ready", "error": None, "export_error": None, "exported_at": None,
                  "excel_path": str(Path(scan["directory"]) / f"标题_{datetime.now():%Y%m%d_%H%M%S}_{identifier[:6]}.xlsx")}
         items = [{**item, "id": uuid.uuid4().hex, "batch_id": identifier} for item in scan["items"]]
@@ -100,7 +101,8 @@ class TaskManager:
                          and (only_ids is None or i["id"] in only_ids)), None)
             if not item:
                 return
-            item.update(status="running", error=None, title=None, raw=None, char_count=None)
+            item.update(status="running", error=None, title=None, raw=None, char_count=None,
+                        reported_char_count=None)
             self.store.save_item(item)
             attempt_id = self.store.begin_attempt(item["id"])
             options = TitleOptions.model_validate(batch["options"])
@@ -111,7 +113,8 @@ class TaskManager:
                     Settings.model_validate(batch["settings"]), key, options, batch["skill"], image)
                 details = result.model_dump()
                 item.update(raw=result.raw, elapsed=result.elapsed,
-                            **evaluate_title(result.raw, result.finish, options.min_chars, options.max_chars))
+                            **evaluate_title(result.raw, result.finish, options.min_chars, options.max_chars,
+                                             output_format=batch.get("output_format", "text")))
             except ProviderError as exc:
                 item.update(status="unknown" if exc.uncertain else "failed", error=str(exc), raw=exc.raw)
                 if exc.global_error:
@@ -128,7 +131,9 @@ class TaskManager:
             finally:
                 self.store.save_item(item)
                 self.store.finish_attempt(attempt_id, details | {"status": item["status"], "error": item["error"],
-                                                                "raw": item["raw"], "title": item["title"]})
+                                                                "raw": item["raw"], "title": item["title"],
+                                                                "char_count": item["char_count"],
+                                                                "reported_char_count": item.get("reported_char_count")})
 
     async def _run(self, identifier: str, key: str, only_ids: set[str] | None = None):
         batch = self.store.get("batch", identifier)
@@ -167,7 +172,8 @@ class TaskManager:
             for item in items:
                 await asyncio.to_thread(verify_source, item)
             for item in items:
-                item.update(status="pending", title=None, raw=None, char_count=None, error=None)
+                item.update(status="pending", title=None, raw=None, char_count=None,
+                            reported_char_count=None, error=None)
                 self.store.save_item(item)
             batch.update(status="paused", error=None, exported_at=None)
             self.store.put("batch", identifier, batch)
