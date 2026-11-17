@@ -18,6 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+EXCEL_NAME = "标题.xlsx"
 
 
 def natural_key(path: Path):

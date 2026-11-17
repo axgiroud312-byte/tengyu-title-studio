@@ -1,6 +1,6 @@
 [project]
 name = "tengyu-title-studio"
-version = "0.2.1"
+version = "0.2.2"
 description = "腾域 ai 写标题 — Windows 跨境电商标题批处理"
 requires-python = ">=3.12,<3.13"
 dependencies = [

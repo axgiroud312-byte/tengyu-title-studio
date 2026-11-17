@@ -142,7 +142,7 @@ export default function App() {
         <div className="path-input"><FolderOpen size={17}/><TextInput ref={pathInput} aria-label="文件夹路径" placeholder={mode === 'sku' ? '选择包含各货号子文件夹的商品文件夹' : '选择直接存放商品图片的文件夹'} value={directory} title={directory} disabled={active || !!busy} onChange={e => { setDirectory(e.target.value); resetResults(); }}/></div>
         <Btn disabled={active || !!busy} onClick={() => void chooseDirectory()}>选择文件夹</Btn><Btn className="scan-btn" disabled={!directory.trim() || active || !!busy || !settings} onClick={() => void doScan()}>{busy === 'scan' ? '扫描中…' : '扫描商品'}<ArrowRight size={15}/></Btn>
       </div>
-      <div className="directory-caption"><span>{mode === 'sku' ? '每个子文件夹对应一个货号，只取其中按文件名自然排序的第一张图片（2 排在 10 前）' : '每张图片对应一个商品，文件名去掉扩展名作为货号'}</span>{scope && <span className="output-path" title={directory}>共 {count} 个商品 · Excel 保存到此文件夹</span>}</div>
+      <div className="directory-caption"><span>{mode === 'sku' ? '每个子文件夹对应一个货号，只取其中按文件名自然排序的第一张图片（2 排在 10 前）' : '每张图片对应一个商品，文件名去掉扩展名作为货号'}</span>{scope && <span className="output-path" title={directory}>共 {count} 个商品 · 标题.xlsx 保存到此文件夹</span>}</div>
     </section>
     <div className="mobile-options"><Btn onClick={() => setShowOptions(true)}><Settings2 size={16}/>生成设置</Btn><span>{options.language} · {options.model}</span></div>
     {(error || notice || batch?.error || batch?.export_error) && <div className={cn('message-bar', (error || batch?.export_error || batch?.error) && 'message-error')} role={error || batch?.export_error || batch?.error ? 'alert' : 'status'}><span>{error || batch?.export_error || batch?.error || notice}</span>{(error || notice) && <button className="icon-btn" aria-label="关闭提示" onClick={() => { setError(''); setNotice(''); }}><X size={16}/></button>}</div>}
@@ -162,7 +162,7 @@ export default function App() {
       {batch.status === 'pausing' && <p role="status">正在暂停，等待当前请求结束…</p>}
       {selected.size > 0 && <p id="regenerate-help" className="regenerate-help">将清空所选商品的当前标题并重新生成，可能产生新的费用。历史结果保留。</p>}
       {!!batch.counts.unknown && <p className="unknown-help">{unknownResultHelp}</p>}
-      <p>处理结束后自动保存 Excel。未生成的标题留空，需检查的标题会标黄。{batch.exported_at && '重新导出会更新原文件。'}</p>
+      <p>处理结束后自动保存标题.xlsx，同一文件夹再次导出会覆盖此文件。未生成的标题留空，需检查的标题会标黄。{batch.exported_at && '重新导出会更新原文件。'}</p>
     </div>}</footer>
     {showSettings && settings && <SettingsModal settings={{ ...settings, defaults: batch ? settings.defaults : options }} onClose={() => setShowSettings(false)} onSaved={s => { setSettings(s); if (!batch) setOptions({ ...defaults, ...s.defaults }); void api<{ models: Model[] }>('/providers/aliyun/models').then(r => setModels(r.models)).catch(e => setError(e.message)); }}/ >}
     <Modal open={showOptions} onClose={() => setShowOptions(false)} title="生成设置" description="设定本批商品的语言与标题要求">{optionsPanel}</Modal>

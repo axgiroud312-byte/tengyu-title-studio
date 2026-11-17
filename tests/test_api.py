@@ -7,6 +7,74 @@ from tengyu.main import create_app
 from tengyu.models import Settings
 
 
+def test_fixed_excel_filename_and_shared_directory_history(tmp_path, credentials, make_image, monkeypatch):
+    from io import BytesIO
+    from urllib.parse import unquote
+    from openpyxl import load_workbook
+    from tengyu.desktop import Bridge
+    import tengyu.tasks as tasks
+
+    image = make_image(tmp_path / "images" / "001.png")
+    app = create_app(tmp_path / "state", token="token", credentials=credentials)
+    store = app.state.manager.store
+    with TestClient(app) as client:
+        client.headers["Authorization"] = "Bearer token"
+        scan = client.post("/api/scans", json={"directory": str(image.parent), "mode": "images"}).json()
+        batches = []
+        for title in ("First title", "Second title"):
+            batch = client.post("/api/batches", json={"scan_id": scan["id"], "options": {}}).json()
+            assert batch["excel_path"] == str(image.parent / "标题.xlsx")
+            item = store.items(batch["id"])[0]
+            item.update(title=title, char_count=len(title), status="completed")
+            store.save_item(item)
+            batches.append(batch["id"])
+
+        def download_title(identifier):
+            response = client.get(f'/api/batches/{identifier}/excel')
+            assert response.status_code == 200
+            assert unquote(response.headers['content-disposition']).endswith("''标题.xlsx")
+            book = load_workbook(BytesIO(response.content))
+            title = book.active['B2'].value
+            book.close()
+            return title
+
+        for identifier, expected in zip(batches, ("First title", "Second title"), strict=True):
+            result = client.post(f'/api/batches/{identifier}/export').json()
+            assert result['exported_at'] and not result['export_error']
+            assert download_title(identifier) == expected
+        assert [p.name for p in image.parent.glob('*.xlsx')] == ['标题.xlsx']
+        assert client.get(f'/api/batches/{batches[0]}/excel').status_code == 404
+        assert '重新导出' in Bridge('token', store).open_output(batches[0])['error']
+        with monkeypatch.context() as patch:
+            def fail(*args):
+                raise ValueError('文件被占用')
+            patch.setattr(tasks, 'export_excel', fail)
+            assert client.post(f'/api/batches/{batches[0]}/export').json()['export_error'] == '文件被占用'
+        assert download_title(batches[1]) == 'Second title'
+        client.post(f'/api/batches/{batches[0]}/export')
+        assert download_title(batches[0]) == 'First title'
+        assert client.get(f'/api/batches/{batches[1]}/excel').status_code == 404
+
+
+def test_reexport_legacy_batch_uses_fixed_name_and_keeps_old_file(tmp_path, credentials, make_image):
+    image = make_image(tmp_path / 'images' / '001.png')
+    app = create_app(tmp_path / 'state', token='token', credentials=credentials)
+    store = app.state.manager.store
+    with TestClient(app) as client:
+        client.headers['Authorization'] = 'Bearer token'
+        scan = client.post('/api/scans', json={'directory': str(image.parent), 'mode': 'images'}).json()
+        batch = client.post('/api/batches', json={'scan_id': scan['id'], 'options': {}}).json()
+        record = store.get('batch', batch['id'])
+        old = image.parent / '标题_20261117_120000_old.xlsx'
+        old.write_bytes(b'previous export')
+        record.update(excel_path=str(old), exported_at='previous')
+        store.put('batch', batch['id'], record)
+        result = client.post(f'/api/batches/{batch["id"]}/export').json()
+        assert result['excel_path'] == str(image.parent / '标题.xlsx')
+        assert result['exported_at'] and not result['export_error']
+        assert old.read_bytes() == b'previous export'
+
+
 def test_custom_language_and_affixes_survive_settings_and_batch_snapshot(tmp_path, credentials, make_image):
     app = create_app(tmp_path / "state", token="token", credentials=credentials)
     with TestClient(app) as client:

@@ -3,10 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
-from datetime import datetime
 from pathlib import Path
 
-from .files import check_output, encoded_image, evaluate_title, export_excel, verify_source
+from .files import EXCEL_NAME, check_output, encoded_image, evaluate_title, export_excel, verify_source
 from .models import ModelInfo, Settings, TitleOptions
 from .providers import PRESETS, PROVIDERS, ProviderError, validate_model
 from .storage import Store, now
@@ -79,7 +78,7 @@ class TaskManager:
                  "skill_version": hashlib.sha256(skill.encode()).hexdigest()[:12],
                  "output_format": "json",
                  "status": "ready", "error": None, "export_error": None, "exported_at": None,
-                 "excel_path": str(Path(scan["directory"]) / f"标题_{datetime.now():%Y%m%d_%H%M%S}_{identifier[:6]}.xlsx")}
+                 "excel_path": str(Path(scan["directory"]) / EXCEL_NAME)}
         items = [{**item, "id": uuid.uuid4().hex, "batch_id": identifier} for item in scan["items"]]
         self.store.create_batch(batch, items)
         return self.summary(identifier)
@@ -208,10 +207,18 @@ class TaskManager:
     async def export(self, identifier: str):
         async with self.export_lock:
             batch = self.store.get("batch", identifier)
+            path = Path(batch["directory"]) / EXCEL_NAME
             try:
-                await asyncio.to_thread(export_excel, batch, self.store.items(identifier))
+                await asyncio.to_thread(export_excel, batch | {"excel_path": str(path)}, self.store.items(identifier))
+                # A shared filename belongs to the last successfully exported batch.
+                for previous in self.store.all("batch"):
+                    if (previous["id"] != identifier and previous.get("exported_at")
+                            and Path(previous["excel_path"]) == path):
+                        previous.update(exported_at=None,
+                                        export_error="此文件夹的标题.xlsx 已由其他批次更新，请重新导出当前批次。")
+                        self.store.put("batch", previous["id"], previous)
                 batch = self.store.get("batch", identifier)
-                batch.update(exported_at=now(), export_error=None)
+                batch.update(excel_path=str(path), exported_at=now(), export_error=None)
             except (ValueError, OSError) as exc:
                 batch = self.store.get("batch", identifier)
                 batch["export_error"] = str(exc) if isinstance(exc, ValueError) else (

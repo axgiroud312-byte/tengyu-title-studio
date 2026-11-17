@@ -7,18 +7,18 @@ import secrets
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from platformdirs import user_data_path
 
 from . import __version__
-from .files import scan_directory, thumbnail
+from .files import EXCEL_NAME, scan_directory, thumbnail
 from .models import BatchCreate, RetryRequest, ScanRequest, Settings, SettingsUpdate
 from .providers import Credentials, ProviderError
 from .storage import Store
@@ -274,12 +274,15 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
         return await manager.export(batch_id)
 
     @app.get("/api/batches/{batch_id}/excel")
-    def download(batch_id: str):
-        batch = store.get("batch", batch_id)
-        path = Path(batch["excel_path"])
-        if not path.is_file():
-            raise HTTPException(404, "此批次尚未导出 Excel")
-        return FileResponse(path, filename=path.name)
+    async def download(batch_id: str):
+        async with manager.export_lock:
+            batch = store.get("batch", batch_id)
+            path = Path(batch["excel_path"])
+            if not batch.get("exported_at") or not path.is_file():
+                raise HTTPException(404, "请先重新导出当前批次的 Excel。")
+            content = await asyncio.to_thread(path.read_bytes)
+        return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(EXCEL_NAME)}"})
 
     root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
     frontend = root / "frontend" / "dist"

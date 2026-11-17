@@ -39,6 +39,8 @@ class Bridge:
     def open_output(self, batch_id: str, directory: bool = False):
         try:
             batch = self._store.get("batch", batch_id)
+            if not directory and not batch.get("exported_at"):
+                return {"error": "请先重新导出当前批次的 Excel。"}
             path = Path(batch["directory"] if directory else batch["excel_path"])
             if not path.exists():
                 return {"error": "文件尚未生成或已被移走。"}
