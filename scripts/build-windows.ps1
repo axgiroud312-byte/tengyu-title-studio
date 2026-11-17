@@ -1,4 +1,4 @@
-param([string]$Version = "0.1.0")
+param([string]$Version = "")
 $ErrorActionPreference = "Stop"
 if ($env:OS -ne "Windows_NT") { throw "此脚本必须在 Windows 64 位环境执行。" }
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -20,6 +20,13 @@ $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | S
 if (-not $compiler) { throw "请安装 Inno Setup 6 后重新执行脚本。" }
 
 Run-Checked "uv" @("sync", "--frozen", "--python", "3.12")
+$projectVersion = & ".venv\Scripts\python.exe" -c "from tengyu import __version__; print(__version__)"
+if ($LASTEXITCODE -ne 0) { throw "无法读取应用版本。" }
+if (-not $Version) { $Version = $projectVersion }
+if ($Version -ne $projectVersion) { throw "安装包版本必须与应用版本一致：$projectVersion" }
+if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$Version") {
+    throw "Git 标签必须与应用版本一致：v$Version"
+}
 Push-Location "frontend"
 try {
     Run-Checked "npm.cmd" @("ci", "--no-audit", "--no-fund")

@@ -4,6 +4,7 @@ import re
 from typing import Literal
 from urllib.parse import urlsplit
 
+import regex
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
@@ -19,6 +20,10 @@ class TitleOptions(StrictModel):
     model: str = "qwen3.8-flash"
     thinking: bool | None = False
     language: str = Field(default="英语", min_length=1, max_length=80)
+    prefix: str = Field(default="", max_length=1000)
+    suffix: str = Field(default="", max_length=1000)
+    prefix_separator: str = ""
+    suffix_separator: str = ""
     min_chars: int | None = Field(default=None, ge=1, le=32767)
     max_chars: int | None = Field(default=None, ge=1, le=32767)
     requirements: str = Field(default="", max_length=20000)
@@ -31,10 +36,36 @@ class TitleOptions(StrictModel):
             raise PydanticCustomError("empty_text", "不能为空。")
         return value.strip()
 
+    @field_validator("prefix", "suffix", "prefix_separator", "suffix_separator")
+    @classmethod
+    def single_line(cls, value: str) -> str:
+        if re.search(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", value):
+            raise PydanticCustomError("title_affix", "请填写单行文字或符号，不含换行、制表符和控制字符。")
+        # Spaces (including repeated or leading/trailing spaces) are intentional.
+        return value
+
+    def title_affixes(self) -> tuple[str, str]:
+        return (self.prefix + self.prefix_separator if self.prefix else "",
+                self.suffix_separator + self.suffix if self.suffix else "")
+
+    def affix_char_count(self) -> int:
+        return sum(len(regex.findall(r"\X", part)) for part in self.title_affixes())
+
+    def for_generation(self) -> TitleOptions:
+        """Reserve room for the local affixes; the provider generates only the body."""
+        extra = self.affix_char_count()
+        return self.model_copy(update={
+            "prefix": "", "suffix": "",
+            "min_chars": max(1, self.min_chars - extra) if self.min_chars else None,
+            "max_chars": self.max_chars - extra if self.max_chars else None,
+        })
+
     @model_validator(mode="after")
     def valid_range(self):
         if self.min_chars and self.max_chars and self.min_chars > self.max_chars:
             raise PydanticCustomError("character_range", "最少字符数不能大于最多字符数。")
+        if self.max_chars and self.affix_char_count() >= self.max_chars:
+            raise PydanticCustomError("character_range", "前后缀和连接符已占满最多字符数，请缩短拼接内容或增加最多字符数。")
         return self
 
 

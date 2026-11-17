@@ -1,9 +1,54 @@
 import sqlite3
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tengyu.main import create_app
 from tengyu.models import Settings
+
+
+def test_custom_language_and_affixes_survive_settings_and_batch_snapshot(tmp_path, credentials, make_image):
+    app = create_app(tmp_path / "state", token="token", credentials=credentials)
+    with TestClient(app) as client:
+        client.headers["Authorization"] = "Bearer token"
+        options = {"language": "克林贡语", "prefix": "品牌", "suffix": "系列",
+                   "prefix_separator": "   ", "suffix_separator": "", "max_chars": 60}
+        saved = client.put("/api/settings", json={"defaults": options})
+        assert saved.status_code == 200
+        assert options.items() <= client.get("/api/settings").json()["defaults"].items()
+        image = make_image(tmp_path / "images" / "001.png")
+        scan = client.post("/api/scans", json={"directory": str(image.parent), "mode": "images"}).json()
+        batch = client.post("/api/batches", json={"scan_id": scan["id"], "options": options})
+        assert batch.status_code == 200
+        assert client.put("/api/settings", json={"defaults": {"prefix": "new"}}).status_code == 200
+        assert options.items() <= client.get(f'/api/batches/{batch.json()["id"]}').json()["options"].items()
+
+
+@pytest.mark.parametrize("options,message", [
+    ({"prefix": "bad\ntext"}, "标题前缀：请填写单行文字"),
+    ({"suffix_separator": "\x00"}, "后缀连接符：请填写单行文字"),
+    ({"prefix": "AB", "prefix_separator": " ", "max_chars": 3}, "前后缀和连接符已占满最多字符数"),
+])
+def test_invalid_affixes_are_rejected_before_generation(tmp_path, credentials, options, message):
+    with TestClient(create_app(tmp_path, token="token", credentials=credentials)) as client:
+        client.headers["Authorization"] = "Bearer token"
+        response = client.put("/api/settings", json={"defaults": options})
+        assert response.status_code == 422
+        assert message in response.json()["errors"][0]["message"]
+
+
+@pytest.mark.parametrize("separator", ["", "   ", "任意文字 / _ | + = 😀", " 任意文字与符号-+[]{} " * 5])
+def test_manually_entered_separators_round_trip_verbatim(tmp_path, credentials, separator):
+    with TestClient(create_app(tmp_path, token="token", credentials=credentials)) as client:
+        client.headers["Authorization"] = "Bearer token"
+        defaults = client.get("/api/settings").json()["defaults"]
+        assert defaults["prefix_separator"] == defaults["suffix_separator"] == ""
+        response = client.put("/api/settings", json={"defaults": {
+            "prefix_separator": separator, "suffix_separator": separator,
+        }})
+        assert response.status_code == 200
+        saved = client.get("/api/settings").json()["defaults"]
+        assert saved["prefix_separator"] == saved["suffix_separator"] == separator
 
 
 def test_auth_origin_and_credentials_redaction(tmp_path, credentials):

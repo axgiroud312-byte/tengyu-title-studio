@@ -152,6 +152,8 @@ async def test_legacy_batch_keeps_plain_text_protocol(tmp_path, make_image, cred
     manager, batch = setup(tmp_path, make_image, credentials, LegacyProvider(), count=1)
     record = manager.store.get("batch", batch)
     record.pop("output_format")
+    for field in ("prefix", "suffix", "prefix_separator", "suffix_separator"):
+        record["options"].pop(field)
     record["skill"] = "最终只输出标题本身。"
     manager.store.put("batch", batch, record)
     await manager.start(batch)
@@ -173,3 +175,55 @@ async def test_retry_clears_previous_reported_count(tmp_path, make_image, creden
     item = manager.store.item(item["id"])
     assert item["reported_char_count"] is None and item["char_count"] is None
     assert item["title"] is None and item["status"] == "failed"
+
+
+async def test_affixes_snapshot_retry_and_excel_use_same_final_title(tmp_path, make_image, credentials):
+    class BodyProvider(FakeProvider):
+        async def generate_title(self, settings, key, options, skill, image):
+            assert options.language == "克林贡语"
+            assert options.prefix == options.suffix == ""
+            assert options.min_chars == options.max_chars == 12
+            return await super().generate_title(settings, key, options, skill, image)
+
+    provider = BodyProvider()
+    manager, batch = setup(tmp_path, make_image, credentials, provider, count=1,
+                           prefix="品牌", prefix_separator="  ", suffix="系列", suffix_separator=" | ",
+                           min_chars=21, max_chars=21, language="克林贡语")
+    # New defaults must never change an existing batch, including after reopening it.
+    manager.store.put("settings", "current", {"defaults": {"prefix": "后来改的前缀"}})
+    manager = TaskManager(Store(tmp_path / "state"), credentials, {"aliyun": provider})
+    await manager.start(batch)
+    await manager.tasks[batch]
+    item = manager.store.items(batch)[0]
+    assert item["title"] == "品牌  Blue product | 系列"
+    assert item["char_count"] == 21 and item["reported_char_count"] == 12
+    assert item["status"] == "completed"
+    assert json.loads(item["raw"])["title"] == "Blue product"
+    await manager.retry(batch, [item["id"]])
+    await manager.tasks[batch]
+    await manager.export(batch)
+    assert provider.calls == 2
+    attempts = manager.store.attempts(item["id"])
+    assert len(attempts) == 2
+    assert all(a["title"] == "品牌  Blue product | 系列" and a["char_count"] == 21 for a in attempts)
+    from openpyxl import load_workbook
+    book = load_workbook(manager.summary(batch)["excel_path"])
+    assert list(book.active.values) == [("货号", "标题"), ("000", "品牌  Blue product | 系列")]
+    book.close()
+
+
+@pytest.mark.parametrize("prefix,suffix,prefix_separator,suffix_separator,expected", [
+    ("P", "", "", "unused", "PBlue product"),
+    ("", "S", "unused", "  ", "Blue product  S"),
+    ("", "", "ignored", "ignored", "Blue product"),
+])
+async def test_affix_empty_values_and_one_sided_titles(
+    tmp_path, make_image, credentials, prefix, suffix, prefix_separator, suffix_separator, expected,
+):
+    manager, batch = setup(tmp_path, make_image, credentials, FakeProvider(), count=1,
+                           prefix=prefix, suffix=suffix, prefix_separator=prefix_separator,
+                           suffix_separator=suffix_separator)
+    await manager.start(batch)
+    await manager.tasks[batch]
+    item = manager.store.items(batch)[0]
+    assert item["status"] == "completed" and item["title"] == expected

@@ -1,4 +1,4 @@
-export type Options = { provider: string; model: string; thinking: boolean | null; language: string; min_chars: number | null; max_chars: number | null; requirements: string; concurrency: number };
+export type Options = { provider: string; model: string; thinking: boolean | null; language: string; prefix: string; suffix: string; prefix_separator: string; suffix_separator: string; min_chars: number | null; max_chars: number | null; requirements: string; concurrency: number };
 export type Settings = { base_url: string; models_url: string; workspace_id: string; defaults: Options; key_configured: boolean; credential_warning: string | null };
 export type Model = { id: string; name: string; thinking: 'switchable' | 'on' | 'off' | 'unknown'; source: string };
 export type Item = { id: string; position: number; sku: string; image_path: string | null; fingerprint: string | null; status: string; title: string | null; raw?: string; char_count: number | null; elapsed: number | null; error: string | null; input_error: string | null; warnings: string[]; attempts?: { id: number; status: string; raw: string; title: string; error: string; elapsed?: number; started_at: string }[] };
@@ -42,7 +42,7 @@ export async function connect() {
   return api<Settings>('/settings');
 }
 
-export const defaults: Options = { provider: 'aliyun', model: 'qwen3.8-flash', thinking: false, language: '英语', min_chars: null, max_chars: null, requirements: '', concurrency: 3 };
+export const defaults: Options = { provider: 'aliyun', model: 'qwen3.8-flash', thinking: false, language: '英语', prefix: '', suffix: '', prefix_separator: '', suffix_separator: '', min_chars: null, max_chars: null, requirements: '', concurrency: 3 };
 export const statusText: Record<string, string> = { pending: '待生成', running: '生成中', completed: '已生成', review: '需检查', failed: '生成失败', unknown: '结果未知' };
 export const batchStatusText: Record<string, string> = { ready: '待开始', running: '生成中', paused: '已暂停', pausing: '正在暂停', completed: '处理结束' };
 export const unknownResultHelp = '未收到完整结果，可能已计费。请查看详情后决定是否重新生成。';

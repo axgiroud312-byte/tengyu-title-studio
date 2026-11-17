@@ -35,6 +35,8 @@ def validation_error_message(error: dict) -> dict[str, str]:
         "max_chars": "最多字符数", "requirements": "补充要求", "concurrency": "同时处理数量",
         "directory": "商品文件夹", "mode": "商品识别方式", "scan_id": "扫描记录",
         "item_ids": "所选商品", "page": "页码",
+        "prefix": "标题前缀", "suffix": "标题后缀",
+        "prefix_separator": "前缀连接符", "suffix_separator": "后缀连接符",
     }
     label = next((labels[part] for part in reversed(location) if part in labels), "提交内容")
     kind, context = error["type"], error.get("ctx", {})
@@ -66,7 +68,7 @@ def validation_error_message(error: dict) -> dict[str, str]:
         message = "包含不支持的字段，请移除后再提交。"
     elif kind == "json_invalid":
         message = "提交内容无法解析，请重新填写后再提交。"
-    elif kind in {"empty_text", "character_range", "service_url", "models_url", "workspace_id"}:
+    elif kind in {"empty_text", "character_range", "service_url", "models_url", "workspace_id", "title_affix"}:
         # Only these application-defined messages are safe to show; never echo input or arbitrary error text.
         message = error["msg"] if kind == "character_range" else f"{label}：{error['msg']}"
     else:

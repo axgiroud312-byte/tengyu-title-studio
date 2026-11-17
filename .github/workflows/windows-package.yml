@@ -1,11 +1,16 @@
-name: Windows installer (manual)
+name: Windows installer
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 permissions:
   contents: read
 jobs:
   package:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -24,8 +29,31 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: ./scripts/build-windows.ps1
+      - name: Calculate installer checksum
+        shell: pwsh
+        run: |
+          $lines = Get-ChildItem dist/installer/*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $lines | Set-Content dist/installer/SHA256SUMS.txt -Encoding ascii
       - uses: actions/upload-artifact@v4
         with:
           name: TengyuTitleStudio-Windows-x64
-          path: dist/installer/*.exe
+          path: |
+            dist/installer/*.exe
+            dist/installer/SHA256SUMS.txt
           if-no-files-found: error
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $assets = @(Get-ChildItem dist/installer/*.exe | ForEach-Object { $_.FullName })
+          $assets += (Resolve-Path dist/installer/SHA256SUMS.txt).Path
+          $notes = "docs/releases/$env:GITHUB_REF_NAME.md"
+          if (-not (Test-Path $notes)) { throw "Release notes not found: $notes" }
+          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --title "腾域 ai 写标题 $env:GITHUB_REF_NAME" --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release upload failed" }

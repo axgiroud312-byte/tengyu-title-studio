@@ -67,6 +67,14 @@
   .select-popup { @apply max-h-72 min-w-48 overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg; min-width: var(--anchor-width); max-width: 560px; }
   .select-item { @apply flex cursor-pointer items-center justify-between gap-4 rounded-md px-3 py-2 text-sm outline-none; }
   .select-item[data-highlighted] { @apply bg-blue-50 text-blue-700; }
+  .language-input { @apply relative flex items-center; }
+  .language-input .input { @apply pr-10; }
+  .language-trigger { @apply absolute right-1 flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-blue-50 disabled:opacity-50; }
+  .language-popup { max-height: min(288px, var(--available-height)); }
+  .language-empty { @apply px-3 py-2; }
+  .language-empty:empty { display: none; }
+  .affix-preview { @apply mb-2 rounded-lg bg-blue-50 p-3; }
+  .affix-preview p { @apply mt-1 whitespace-pre-wrap break-words text-sm text-blue-800; }
   .thinking-row { @apply flex items-center justify-between gap-2; }
   .label-with-icon { @apply mb-1 flex items-center gap-1.5; }
   .switch { @apply flex h-5 w-9 shrink-0 items-center rounded-full border-0 bg-slate-200 p-0.5 disabled:opacity-50; }
@@ -115,6 +123,7 @@
   .sku-text { @apply block truncate font-semibold; }
   .duplicate-label { @apply mt-1 block text-[10px] text-amber-600; }
   .title-cell { @apply w-full text-left text-xs leading-5 text-slate-700; }
+  .title-cell, .full-title { white-space: pre-wrap; overflow-wrap: anywhere; }
   .title-placeholder { @apply text-slate-400; }
   .number-cell { @apply tabular-nums text-slate-500; }
   .status-badge { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-500; }

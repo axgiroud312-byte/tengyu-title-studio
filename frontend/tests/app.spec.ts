@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import type { Batch, Item } from '../src/api';
 
-const options = { provider: 'aliyun', model: 'qwen3.8-flash', thinking: false, language: '英语', min_chars: null, max_chars: null, requirements: '', concurrency: 3 };
+const options = { provider: 'aliyun', model: 'qwen3.8-flash', thinking: false, language: '英语', prefix: '', suffix: '', prefix_separator: '', suffix_separator: '', min_chars: null, max_chars: null, requirements: '', concurrency: 3 };
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -64,7 +64,7 @@ function makeBatch(items: Item[]): Batch {
   return {
     id: 'sample-batch', mode: 'images', directory: 'C:\\商品图片', total: items.length,
     created_at: '2026-10-07T08:00:00Z', status: 'completed', processed: items.length,
-    counts, options, error: null, export_error: null, excel_path: '', exported_at: null,
+    counts, options: { ...options }, error: null, export_error: null, excel_path: '', exported_at: null,
     skill_version: 'test',
   };
 }
@@ -196,4 +196,74 @@ test('选择成功商品后先说明清空和费用，点击重新生成才请�
   expect((await request).postDataJSON()).toEqual({ item_ids: ['001'] });
   await expect(retry).toHaveCount(0);
   expect(retryRequests).toEqual([{ item_ids: ['001'] }]);
+});
+
+for (const width of [1366, 910]) {
+  test(`语言可选择和自由输入，前后缀保留自定义空格并保存（${width}）`, async ({ page }) => {
+    let savedSettings = { base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models_url: '', workspace_id: '', defaults: options, key_configured: false, credential_warning: null };
+    await page.route('**/api/settings', route => {
+      if (route.request().method() === 'PUT') savedSettings = { ...savedSettings, ...route.request().postDataJSON() };
+      return route.fulfill({ json: savedSettings });
+    });
+    await page.setViewportSize({ width, height: 768 });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: '设置', exact: true })).toBeEnabled();
+    if (width < 1100) await page.getByRole('button', { name: '生成设置', exact: true }).click();
+    const panel = page.locator('.options-panel:visible');
+    const language = panel.getByRole('combobox', { name: '目标语言', exact: true });
+    await panel.getByRole('button', { name: '展开语言列表' }).click();
+    await page.getByRole('option', { name: '阿拉伯语', exact: true }).click();
+    await expect(language).toHaveValue('阿拉伯语');
+    await language.fill('葡萄牙');
+    await expect(page.getByRole('option')).toHaveCount(2);
+    await language.press('ArrowDown');
+    await language.press('Enter');
+    await expect(language).toHaveValue('葡萄牙语');
+    await language.fill('克林贡语');
+    await expect(page.getByText('没有匹配项，将使用你输入的语言。', { exact: true })).toBeVisible();
+    await language.press('Tab');
+    await expect(language).toHaveValue('克林贡语');
+    await panel.getByRole('textbox', { name: /^标题前缀/ }).fill('品牌');
+    const separator = panel.getByRole('textbox', { name: '前缀连接符', exact: true });
+    await expect(separator).toHaveValue('');
+    const customText = ' 任意文字 / _ | + = 😀 '.repeat(3);
+    await separator.fill(customText);
+    expect(await panel.getByLabel('拼接预览', { exact: true }).textContent()).toBe(`品牌${customText}生成的标题`);
+    await panel.getByRole('textbox', { name: '前缀连接符', exact: true }).fill('   ');
+    await panel.getByRole('textbox', { name: /^标题后缀/ }).fill('系列');
+    await panel.getByRole('textbox', { name: '后缀连接符', exact: true }).fill('');
+    expect(await panel.getByLabel('拼接预览', { exact: true }).textContent()).toBe('品牌   生成的标题系列');
+    if (width < 1100) await page.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: '服务设置' })).toHaveCount(0);
+    expect(savedSettings.defaults).toMatchObject({ language: '克林贡语', prefix: '品牌', suffix: '系列', prefix_separator: '   ', suffix_separator: '' });
+    await page.reload();
+    await expect(page.getByRole('button', { name: '设置', exact: true })).toBeEnabled();
+    if (width < 1100) await page.getByRole('button', { name: '生成设置', exact: true }).click();
+    await expect(language).toHaveValue('克林贡语');
+    await expect(panel.getByRole('textbox', { name: '前缀连接符', exact: true })).toHaveValue('   ');
+    expect(await panel.getByLabel('拼接预览', { exact: true }).textContent()).toBe('品牌   生成的标题系列');
+  });
+}
+
+test('历史批次的语言和拼接设置不可修改，旧数据缺少拼接字段仍能打开', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  const legacy = makeBatch([makeItem('001', 'completed')]);
+  for (const field of ['prefix', 'suffix', 'prefix_separator', 'suffix_separator'] as const) {
+    delete (legacy.options as Partial<typeof options>)[field];
+  }
+  await page.route('**/api/batches', route => route.fulfill({ json: [legacy] }));
+  await page.route('**/api/batches/sample-batch', route => route.fulfill({ json: legacy }));
+  await page.route('**/api/batches/sample-batch/items?*', route => route.fulfill({ json: { items: [makeItem('001', 'completed')], total: 1, page: 1, counts: legacy.counts } }));
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '历史批次', exact: true }).click();
+  await page.getByRole('dialog', { name: '历史批次', exact: true }).getByRole('button', { name: /商品图片/ }).click();
+  const panel = page.locator('.options-panel:visible');
+  await expect(panel.getByRole('combobox', { name: '目标语言', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('textbox', { name: /^标题前缀/ })).toBeDisabled();
+  await expect(panel.getByRole('textbox', { name: '前缀连接符', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('textbox', { name: /^标题后缀/ })).toHaveValue('');
+  await expect(panel.getByLabel('拼接预览', { exact: true })).toHaveText('生成的标题');
 });

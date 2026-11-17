@@ -135,3 +135,40 @@ def test_json_mismatch_alone_requires_review():
 def test_json_incomplete_response_is_not_exportable():
     result = evaluate_title('{"title":"ABC","char_count":3}', "length", None, None, output_format="json")
     assert result["status"] == "failed" and result["title"] is None
+
+
+@pytest.mark.parametrize("prefix,suffix,expected", [
+    ("品牌  ", " | 系列", "品牌  ABC | 系列"),
+    ("[", "]", "[ABC]"),
+    ("", "  ", "ABC  "),
+    ("👩‍👩‍👧‍👦 ", " e\u0301", "👩‍👩‍👧‍👦 ABC e\u0301"),
+])
+def test_affixes_preserved_and_model_count_compares_only_body(prefix, suffix, expected):
+    import regex
+    count = len(regex.findall(r"\X", expected))
+    result = evaluate_title('{"title":"ABC","char_count":3}', "stop", count, count,
+                            output_format="json", prefix=prefix, suffix=suffix)
+    assert result["title"] == expected
+    assert result["char_count"] == count
+    assert result["reported_char_count"] == 3
+    assert result["status"] == "completed" and result["error"] is None
+
+
+def test_affixes_count_towards_range_without_hiding_model_errors():
+    result = evaluate_title('{"title":"ABC","char_count":4}', "stop", None, 4,
+                            output_format="json", prefix="P ", suffix=" S")
+    assert result["title"] == "P ABC S" and result["char_count"] == 7
+    assert result["status"] == "review"
+    assert "AI 自报 4 字符，程序实算 3 字符（生成正文）" in result["error"]
+    assert "超过要求的 4" in result["error"]
+
+
+@pytest.mark.parametrize("raw,finish", [
+    ('{"title":"","char_count":0}', "stop"),
+    ('{"title":"ABC","char_count":3}', "length"),
+    ('not JSON', "stop"),
+])
+def test_failed_response_never_becomes_an_affix_only_title(raw, finish):
+    result = evaluate_title(raw, finish, None, None, output_format="json", prefix="P ", suffix=" S")
+    assert result["status"] == "failed"
+    assert result["title"] is None and result["char_count"] is None

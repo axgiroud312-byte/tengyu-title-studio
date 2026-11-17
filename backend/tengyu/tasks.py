@@ -110,11 +110,13 @@ class TaskManager:
             try:
                 image = await asyncio.to_thread(encoded_image, item)
                 result = await self.providers[options.provider].generate_title(
-                    Settings.model_validate(batch["settings"]), key, options, batch["skill"], image)
+                    Settings.model_validate(batch["settings"]), key, options.for_generation(), batch["skill"], image)
                 details = result.model_dump()
+                prefix, suffix = options.title_affixes()
                 item.update(raw=result.raw, elapsed=result.elapsed,
                             **evaluate_title(result.raw, result.finish, options.min_chars, options.max_chars,
-                                             output_format=batch.get("output_format", "text")))
+                                             output_format=batch.get("output_format", "text"),
+                                             prefix=prefix, suffix=suffix))
             except ProviderError as exc:
                 item.update(status="unknown" if exc.uncertain else "failed", error=str(exc), raw=exc.raw)
                 if exc.global_error:

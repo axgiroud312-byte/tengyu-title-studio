@@ -140,7 +140,7 @@ def thumbnail(item: dict) -> bytes:
 
 
 def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: int | None,
-                   *, output_format: str = "text") -> dict:
+                   *, output_format: str = "text", prefix: str = "", suffix: str = "") -> dict:
     # Original body is stored separately. No language/semantic claim is inferred here.
     if finish != "stop":
         return {"status": "failed", "title": None, "char_count": None,
@@ -167,16 +167,20 @@ def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: i
         return {"status": "failed", "title": None, "char_count": None,
                 "error": "返回内容不是单条标题，请查看原始结果后决定是否重新生成。"}
     title = regex.sub(r"\s+", " ", text)
-    count = len(regex.findall(r"\X", title))
+    body_count = len(regex.findall(r"\X", title))
     issues = []
-    if reported_count is not None and reported_count != count:
-        issues.append(f"AI 自报 {reported_count} 字符，程序实算 {count} 字符")
+    if reported_count is not None and reported_count != body_count:
+        issues.append(f"AI 自报 {reported_count} 字符，程序实算 {body_count} 字符（生成正文）")
+    if "|" in title:
+        issues.append("含标题规则禁用的竖线符号")
+    # Validate the model body first, then append user text verbatim exactly once.
+    # User-selected symbols are not model-rule violations.
+    title = prefix + title + suffix
+    count = len(regex.findall(r"\X", title))
     if minimum and count < minimum:
         issues.append(f"字符数为 {count}，少于要求的 {minimum}")
     if maximum and count > maximum:
         issues.append(f"字符数为 {count}，超过要求的 {maximum}")
-    if "|" in title:
-        issues.append("含标题规则禁用的竖线符号")
     return {"title": title, "char_count": count, "reported_char_count": reported_count,
             "status": "review" if issues else "completed",
             "error": "；".join(issues) or None}

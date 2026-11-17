@@ -3,6 +3,8 @@ import { useId } from 'react';
 import { BookOpen, RefreshCw, Settings2, Sparkles } from 'lucide-react';
 import type { Model, Options } from './api';
 import { Btn, Choice, TextInput } from './ui';
+import LanguageInput from './LanguageInput';
+import SeparatorInput from './SeparatorInput';
 
 export default function OptionsPanel({ value, onChange, models, locked, batchLocked = false, refreshing, onRefresh, onSkill }: {
   value: Options; onChange(v: Options): void; models: Model[]; locked: boolean; batchLocked?: boolean; refreshing: boolean;
@@ -11,6 +13,7 @@ export default function OptionsPanel({ value, onChange, models, locked, batchLoc
   const fieldId = useId();
   const change = <K extends keyof Options>(key: K, v: Options[K]) => onChange({ ...value, [key]: v });
   const current = models.find(m => m.id === value.model);
+  const preview = (value.prefix ? value.prefix + value.prefix_separator : '') + '生成的标题' + (value.suffix ? value.suffix_separator + value.suffix : '');
   const modelOptions = models.map(m => ({ value: m.id, label: m.id }));
   if (!modelOptions.some(m => m.value === value.model)) modelOptions.unshift({ value: value.model, label: value.model });
   return <div className="options-panel">
@@ -25,8 +28,16 @@ export default function OptionsPanel({ value, onChange, models, locked, batchLoc
       <Switch.Root className="switch" checked={value.thinking === true} onCheckedChange={v => change('thinking', v)} disabled={locked || current?.thinking !== 'switchable'} aria-label="深度思考"><Switch.Thumb className="switch-thumb"/></Switch.Root>
     </div>
     <div className="panel-divider"/>
-    <div className="field"><label htmlFor={`${fieldId}-language`}>目标语言</label><TextInput id={`${fieldId}-language`} list={`${fieldId}-languages`} value={value.language} onChange={e => change('language', e.target.value)} disabled={locked}/><datalist id={`${fieldId}-languages`}>{['英语','西班牙语','德语','法语','意大利语','葡萄牙语','日语','韩语','泰语','越南语','中文'].map(l => <option key={l} value={l}/>)}</datalist></div>
-    <div className="field"><label>标题字符数范围 <span className="optional">选填</span></label><div className="range-inputs"><TextInput aria-label="最少字符数" type="number" min={1} max={32767} placeholder="最少" value={value.min_chars ?? ''} onChange={e => change('min_chars', e.target.value ? Number(e.target.value) : null)} disabled={locked}/><span>—</span><TextInput aria-label="最多字符数" type="number" min={1} max={32767} placeholder="最多" value={value.max_chars ?? ''} onChange={e => change('max_chars', e.target.value ? Number(e.target.value) : null)} disabled={locked}/></div><p className="field-help">按可见字符统计，包含空格与标点。</p></div>
+    <div className="field"><label htmlFor={`${fieldId}-language`}>目标语言</label><LanguageInput id={`${fieldId}-language`} value={value.language} onChange={language => change('language', language)} disabled={locked}/><p id={`${fieldId}-language-help`} className="field-help">可下拉选择或直接输入，支持列表以外的语言。</p></div>
+    <div className="field"><label>标题字符数范围 <span className="optional">选填</span></label><div className="range-inputs"><TextInput aria-label="最少字符数" type="number" min={1} max={32767} placeholder="最少" value={value.min_chars ?? ''} onChange={e => change('min_chars', e.target.value ? Number(e.target.value) : null)} disabled={locked}/><span>—</span><TextInput aria-label="最多字符数" type="number" min={1} max={32767} placeholder="最多" value={value.max_chars ?? ''} onChange={e => change('max_chars', e.target.value ? Number(e.target.value) : null)} disabled={locked}/></div><p className="field-help">按完整标题的可见字符统计，包含前后缀、连接符、空格与标点。</p></div>
+    <div className="panel-divider"/>
+    <div className="field"><label htmlFor={`${fieldId}-prefix`}>标题前缀 <span className="optional">选填</span></label><TextInput id={`${fieldId}-prefix`} value={value.prefix} onChange={e => change('prefix', e.target.value)} disabled={locked} maxLength={1000} placeholder="例如：品牌名"/></div>
+    <SeparatorInput label="前缀连接符" value={value.prefix_separator} onChange={separator => change('prefix_separator', separator)} disabled={locked}/>
+    <div className="field"><label htmlFor={`${fieldId}-suffix`}>标题后缀 <span className="optional">选填</span></label><TextInput id={`${fieldId}-suffix`} value={value.suffix} onChange={e => change('suffix', e.target.value)} disabled={locked} maxLength={1000} placeholder="例如：系列名"/></div>
+    <SeparatorInput label="后缀连接符" value={value.suffix_separator} onChange={separator => change('suffix_separator', separator)} disabled={locked}/>
+    <div className="affix-preview"><span className="field-help">拼接预览</span><p aria-label="拼接预览">{preview}</p></div>
+    <p className="field-help">生成完成后由程序原样拼接；前缀或后缀留空时，不添加对应连接符。</p>
+    <div className="panel-divider"/>
     <div className="field"><label htmlFor={`${fieldId}-requirements`}>补充要求 <span className="optional">选填</span></label><textarea id={`${fieldId}-requirements`} className="input requirements" placeholder="例如：面向美国市场，突出图案，避免促销词。" value={value.requirements} onChange={e => change('requirements', e.target.value)} disabled={locked} aria-describedby={`${fieldId}-requirements-help`}/><p id={`${fieldId}-requirements-help`} className="field-help">要求对本批所有商品生效。商品资料请仅填写已确认、且本批商品共用的信息。</p></div>
     <Btn className="skill-link" onClick={onSkill}><BookOpen size={15}/><span>查看标题规则</span></Btn>
     <p className="panel-footnote">不会自动重试。长度不符时保留标题，并标记为“需检查”。</p>

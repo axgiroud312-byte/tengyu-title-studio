@@ -46,7 +46,7 @@ export default function App() {
     let disposed = false;
     connect().then(async s => {
       const m = await api<{ models: Model[] }>('/providers/aliyun/models');
-      if (!disposed) { setSettings(s); setOptions(s.defaults); setModels(m.models); setConnectionState('ready'); }
+      if (!disposed) { setSettings(s); setOptions({ ...defaults, ...s.defaults }); setModels(m.models); setConnectionState('ready'); }
     }).catch(e => { if (!disposed) { setError(e.message); setConnectionState('error'); } });
     return () => { disposed = true; };
   }, []);
@@ -84,7 +84,7 @@ export default function App() {
     } else { pathInput.current?.focus(); setNotice('请在“文件夹路径”中粘贴本机商品文件夹的完整路径。'); }
   }
 
-  function resetResults() { if (batch && settings) setOptions(settings.defaults); setScan(null); setBatch(null); setSelected(new Set()); setPage(1); setFilter('all'); }
+  function resetResults() { if (batch && settings) setOptions({ ...defaults, ...settings.defaults }); setScan(null); setBatch(null); setSelected(new Set()); setPage(1); setFilter('all'); }
   async function doScan() {
     await perform('scan', async () => {
       const result = await api<Scan>('/scans', 'POST', { directory, mode });
@@ -164,10 +164,10 @@ export default function App() {
       {!!batch.counts.unknown && <p className="unknown-help">{unknownResultHelp}</p>}
       <p>处理结束后自动保存 Excel。未生成的标题留空，需检查的标题会标黄。{batch.exported_at && '重新导出会更新原文件。'}</p>
     </div>}</footer>
-    {showSettings && settings && <SettingsModal settings={{ ...settings, defaults: batch ? settings.defaults : options }} onClose={() => setShowSettings(false)} onSaved={s => { setSettings(s); if (!batch) setOptions(s.defaults); void api<{ models: Model[] }>('/providers/aliyun/models').then(r => setModels(r.models)).catch(e => setError(e.message)); }}/ >}
+    {showSettings && settings && <SettingsModal settings={{ ...settings, defaults: batch ? settings.defaults : options }} onClose={() => setShowSettings(false)} onSaved={s => { setSettings(s); if (!batch) setOptions({ ...defaults, ...s.defaults }); void api<{ models: Model[] }>('/providers/aliyun/models').then(r => setModels(r.models)).catch(e => setError(e.message)); }}/ >}
     <Modal open={showOptions} onClose={() => setShowOptions(false)} title="生成设置" description="设定本批商品的语言与标题要求">{optionsPanel}</Modal>
     <Modal open={skill !== null} onClose={() => setSkill(null)} title="标题规则" description="每次生成都会使用这些规则，并结合商品图片和补充要求。" wide><pre className="skill-content">{skill}</pre></Modal>
-    <Modal open={history !== null} onClose={() => setHistory(null)} title="历史批次" description="批次、标题和原始结果保存在本机。" wide><div className="history-list">{history?.length ? history.map(b => <button key={b.id} className="history-item" onClick={() => { setBatch(b); setScan(null); setOptions(b.options); setMode(b.mode); setDirectory(b.directory); setPage(1); setFilter('all'); setSelected(new Set()); setHistory(null); setNotice(''); setError(''); }}><FileSpreadsheet size={24}/><div><strong>{b.directory.split(/[\\/]/).pop()}</strong><p>{new Date(b.created_at).toLocaleString('zh-CN')} · {b.total} 个商品 · {b.options.language}</p></div><span className="status-badge">{batchStatusText[b.status] || '状态未知'}</span><ChevronRight size={18}/></button>) : <div className="no-results">还没有历史批次，开始生成后会自动保存在这里。</div>}</div></Modal>
+    <Modal open={history !== null} onClose={() => setHistory(null)} title="历史批次" description="批次、标题和原始结果保存在本机。" wide><div className="history-list">{history?.length ? history.map(b => <button key={b.id} className="history-item" onClick={() => { setBatch(b); setScan(null); setOptions({ ...defaults, ...b.options }); setMode(b.mode); setDirectory(b.directory); setPage(1); setFilter('all'); setSelected(new Set()); setHistory(null); setNotice(''); setError(''); }}><FileSpreadsheet size={24}/><div><strong>{b.directory.split(/[\\/]/).pop()}</strong><p>{new Date(b.created_at).toLocaleString('zh-CN')} · {b.total} 个商品 · {b.options.language}</p></div><span className="status-badge">{batchStatusText[b.status] || '状态未知'}</span><ChevronRight size={18}/></button>) : <div className="no-results">还没有历史批次，开始生成后会自动保存在这里。</div>}</div></Modal>
     <Modal open={detail !== null} onClose={() => setDetail(null)} title={detail?.sku || '商品详情'} description="查看商品图片、当前标题和历次生成结果。" wide>{detail && <div className="detail-layout"><div className="detail-image">{detail.fingerprint ? <img src={imageUrl(detail)} alt={detail.sku}/> : <ImageIcon size={48}/>}</div><div className="detail-content"><span className={cn('status-badge',`status-${detail.status}`)}>{statusText[detail.status] || '状态未知'}</span><h3>当前标题</h3><p className="full-title">{detail.title || '尚未生成标题'}</p><p className="field-help">{detail.char_count ?? '—'} 字符{detail.elapsed != null && ` · 用时 ${detail.elapsed.toFixed(1)} 秒`}</p>{detail.status === 'unknown' && <p className="unknown-help">此次请求可能已计费，重新生成可能产生新的费用。</p>}{detail.error && <p className="error-message">{detail.error}</p>}<p className="source-path">{detail.image_path}</p>{detail.attempts?.map((a, index) => <details className="attempt" key={a.id}><summary>第 {index+1} 次生成 · {statusText[a.status] || '状态未知'} · 原始结果</summary><pre>{a.raw || a.error || '未收到结果正文'}</pre></details>)}{batch?.exported_at && <Btn className="mt-4" onClick={() => void openOutput(true)}><FolderOpen size={15}/>{window.pywebview ? '打开保存文件夹' : '查看保存路径'}</Btn>}</div></div>}</Modal>
     <div className="sr-only" aria-live="polite">{batch ? `已处理 ${batch.processed} 个商品。${batchSummary}` : ''}</div>
   </div>;
