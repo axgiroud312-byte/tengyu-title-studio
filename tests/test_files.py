@@ -101,10 +101,7 @@ def test_json_visible_characters(title, count):
 
 @pytest.mark.parametrize("raw", [
     "ABC", '```json\n{"title":"ABC","char_count":3}\n```',
-    '{"title":"ABC"}', '{"title":"ABC","char_count":"3"}',
-    '{"title":"ABC","char_count":true}', '{"title":"ABC","char_count":3.0}',
-    '{"title":"ABC","char_count":-1}', '{"title":null,"char_count":0}',
-    '{"title":"ABC","char_count":3,"extra":1}', '[]', 'null',
+    '{"title":null,"char_count":0}', '{"char_count":3}', '[]', 'null',
     '{"title":"ABC","char_count":3', '{"title":"one\\ntwo","char_count":7}',
 ])
 def test_invalid_json_title_is_not_exportable(raw):
@@ -117,8 +114,7 @@ def test_json_count_mismatch_and_range_use_actual_count(tmp_path):
     result = evaluate_title(raw, "stop", 5, 10, output_format="json")
     assert result["status"] == "review" and result["title"] == "ABC"
     assert result["reported_char_count"] == 5 and result["char_count"] == 3
-    assert "AI 自报 5 字符，程序实算 3 字符" in result["error"]
-    assert "少于要求" in result["error"]
+    assert result["error"] == "还差 2 字符（实际 3，最少 5）"
     path = tmp_path / "result.xlsx"
     export_excel({"excel_path": str(path)}, [{"sku": "001", **result}])
     book = load_workbook(path)
@@ -127,9 +123,27 @@ def test_json_count_mismatch_and_range_use_actual_count(tmp_path):
     book.close()
 
 
-def test_json_mismatch_alone_requires_review():
+def test_json_mismatch_alone_does_not_require_review():
     result = evaluate_title('{"title":"ABC","char_count":9}', "stop", None, None, output_format="json")
-    assert result["status"] == "review" and result["char_count"] == 3
+    assert result["status"] == "completed" and result["char_count"] == 3
+    assert result["reported_char_count"] == 9 and result["error"] is None
+
+
+@pytest.mark.parametrize("metadata", [{}, {"char_count": "3"}, {"char_count": True},
+                                     {"char_count": -1}, {"char_count": 3.0},
+                                     {"char_count": None}, {"char_count": 999, "extra": 1}])
+def test_optional_count_metadata_does_not_reject_a_valid_title(metadata, tmp_path):
+    result = evaluate_title(json.dumps({"title": "ABC", **metadata}), "stop", 7, 7,
+                            output_format="json", prefix="P ", suffix=" S")
+    assert result["title"] == "P ABC S" and result["char_count"] == 7
+    assert result["status"] == "completed" and result["error"] is None
+    path = tmp_path / "title.xlsx"
+    export_excel({"excel_path": str(path)}, [{"sku": "001", **result}])
+    with path.open('rb') as file:
+        book = load_workbook(file)
+        assert book.active['B2'].value == 'P ABC S'
+        assert book.active['B2'].comment is None
+        book.close()
 
 
 def test_json_incomplete_response_is_not_exportable():
@@ -159,8 +173,7 @@ def test_affixes_count_towards_range_without_hiding_model_errors():
                             output_format="json", prefix="P ", suffix=" S")
     assert result["title"] == "P ABC S" and result["char_count"] == 7
     assert result["status"] == "review"
-    assert "AI 自报 4 字符，程序实算 3 字符（生成正文）" in result["error"]
-    assert "超过要求的 4" in result["error"]
+    assert result["error"] == "超出 3 字符（实际 7，最多 4）"
 
 
 @pytest.mark.parametrize("raw,finish", [

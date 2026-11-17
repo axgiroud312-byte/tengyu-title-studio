@@ -28,6 +28,30 @@ class TaskManager:
         except KeyError:
             return Settings()
 
+    def recheck_titles(self):
+        """Reclassify saved titles locally; never dispatch a request or rewrite an Excel file."""
+        for batch in self.store.all("batch"):
+            options = TitleOptions.model_validate(batch["options"])
+            prefix, suffix = options.title_affixes()
+            changed = []
+            for item in self.store.items(batch["id"]):
+                if item["status"] not in {"completed", "review"} or not item.get("raw"):
+                    continue
+                result = evaluate_title(item["raw"], "stop", options.min_chars, options.max_chars,
+                                        output_format=batch.get("output_format", "text"),
+                                        prefix=prefix, suffix=suffix)
+                # Preserve content and all historical attempts; only refresh current validation.
+                if result["title"] != item["title"] or result["status"] == "failed":
+                    continue
+                if any(item.get(key) != value for key, value in result.items()):
+                    changed.append(item | result)
+            if changed:
+                # Invalidate the old export before updating records, so a restart is safe.
+                batch["exported_at"] = None
+                self.store.put("batch", batch["id"], batch)
+                for item in changed:
+                    self.store.save_item(item)
+
     def models(self, provider: str) -> list[ModelInfo]:
         try:
             return [ModelInfo.model_validate(m) for m in self.store.get("models", provider)["models"]]

@@ -149,15 +149,15 @@ def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: i
     if output_format == "json":
         try:
             payload = json.loads(raw)
-            if (not isinstance(payload, dict) or set(payload) != {"title", "char_count"}
-                    or not isinstance(payload["title"], str)
-                    or type(payload["char_count"]) is not int or payload["char_count"] < 0):
+            if not isinstance(payload, dict) or not isinstance(payload.get("title"), str):
                 raise ValueError()
             text = payload["title"].strip()
-            reported_count = payload["char_count"]
+            # Optional legacy metadata must never invalidate an otherwise usable title.
+            value = payload.get("char_count")
+            reported_count = value if type(value) is int and value >= 0 else None
         except (ValueError, TypeError):
             return {"status": "failed", "title": None, "char_count": None,
-                    "error": "模型未返回有效的标题 JSON（title 和整数 char_count），请查看原始结果后决定是否重新生成。"}
+                    "error": "模型未返回有效的标题 JSON（字符串 title），请查看原始结果后决定是否重新生成。"}
     else:
         text = raw.strip()
     if not text:
@@ -167,10 +167,7 @@ def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: i
         return {"status": "failed", "title": None, "char_count": None,
                 "error": "返回内容不是单条标题，请查看原始结果后决定是否重新生成。"}
     title = regex.sub(r"\s+", " ", text)
-    body_count = len(regex.findall(r"\X", title))
     issues = []
-    if reported_count is not None and reported_count != body_count:
-        issues.append(f"AI 自报 {reported_count} 字符，程序实算 {body_count} 字符（生成正文）")
     if "|" in title:
         issues.append("含标题规则禁用的竖线符号")
     # Validate the model body first, then append user text verbatim exactly once.
@@ -178,9 +175,9 @@ def evaluate_title(raw: str, finish: str | None, minimum: int | None, maximum: i
     title = prefix + title + suffix
     count = len(regex.findall(r"\X", title))
     if minimum and count < minimum:
-        issues.append(f"字符数为 {count}，少于要求的 {minimum}")
+        issues.append(f"还差 {minimum - count} 字符（实际 {count}，最少 {minimum}）")
     if maximum and count > maximum:
-        issues.append(f"字符数为 {count}，超过要求的 {maximum}")
+        issues.append(f"超出 {count - maximum} 字符（实际 {count}，最多 {maximum}）")
     return {"title": title, "char_count": count, "reported_char_count": reported_count,
             "status": "review" if issues else "completed",
             "error": "；".join(issues) or None}

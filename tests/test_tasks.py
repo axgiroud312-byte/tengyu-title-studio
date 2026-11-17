@@ -227,3 +227,59 @@ async def test_affix_empty_values_and_one_sided_titles(
     await manager.tasks[batch]
     item = manager.store.items(batch)[0]
     assert item["status"] == "completed" and item["title"] == expected
+
+
+async def test_title_only_response_generates_once_and_exports(tmp_path, make_image, credentials):
+    class TitleOnlyProvider(FakeProvider):
+        async def generate_title(self, settings, key, options, skill, image):
+            self.calls += 1
+            assert '{"title":"Blue bag"}' in skill
+            assert options.min_chars == options.max_chars == 8
+            return GenerationResult(raw='{"title":"Blue bag"}', finish="stop")
+
+    provider = TitleOnlyProvider()
+    manager, batch = setup(tmp_path, make_image, credentials, provider, count=1,
+                           prefix="P", prefix_separator=" ", min_chars=10, max_chars=10)
+    await manager.start(batch)
+    await manager.tasks[batch]
+    item = manager.store.items(batch)[0]
+    assert item["title"] == "P Blue bag" and item["char_count"] == 10
+    assert item["status"] == "completed" and item["reported_char_count"] is None
+    assert provider.calls == 1 and manager.summary(batch)["exported_at"]
+
+
+async def test_startup_rechecks_old_titles_without_requests_or_rewriting_exports(tmp_path, make_image, credentials):
+    from fastapi.testclient import TestClient
+    from tengyu.main import create_app
+
+    provider = FakeProvider()
+    manager, batch = setup(tmp_path, make_image, credentials, provider, min_chars=10, max_chars=20)
+    await manager.start(batch)
+    await manager.tasks[batch]
+    items = manager.store.items(batch)
+    items[0].update(status="review", error="AI 自报 99 字符，程序实算 12 字符", reported_char_count=99,
+                    raw='{"title":"Blue product","char_count":99}')
+    items[1].update(status="review", title="ABC", char_count=3,
+                    raw='{"title":"ABC","char_count":10}', error="字符数为 3，少于要求的 10")
+    items[2].update(status="failed", title=None, char_count=None, error="请求失败")
+    for item in items:
+        manager.store.save_item(item)
+    attempts = [manager.store.attempts(item["id"]) for item in items]
+    from pathlib import Path
+    path = Path(manager.summary(batch)["excel_path"])
+    original_excel = path.read_bytes()
+    # Exercise the actual startup hook twice, including an already rechecked database.
+    for _ in range(2):
+        with TestClient(create_app(tmp_path / "state", credentials=credentials)) as client:
+            assert client.get('/health').status_code == 200
+        current = manager.store.items(batch)
+        assert current[0]["status"] == "completed" and current[0]["error"] is None
+        assert current[0]["title"] == "Blue product" and current[0]["raw"] == items[0]["raw"]
+        assert current[1]["status"] == "review" and current[1]["error"] == "还差 7 字符（实际 3，最少 10）"
+        assert current[2] == items[2]
+        assert [manager.store.attempts(item["id"]) for item in current] == attempts
+        assert manager.summary(batch)["exported_at"] is None
+        assert path.read_bytes() == original_excel
+        assert provider.calls == 3
+    await manager.export(batch)
+    assert manager.summary(batch)["exported_at"] and provider.calls == 3

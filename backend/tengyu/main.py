@@ -88,6 +88,7 @@ def create_app(data_dir: Path | None = None, token: str | None = None, credentia
     @asynccontextmanager
     async def lifespan(app):
         store.recover()
+        await asyncio.to_thread(manager.recheck_titles)
         yield
         await manager.shutdown()
 
